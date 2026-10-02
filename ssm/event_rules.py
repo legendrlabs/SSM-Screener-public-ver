@@ -29,8 +29,8 @@ MERGER_KINDS = {'MERGER_REVERSE_MERGER', 'MERGER_CASH_CVR', 'REVERSE_MERGER_CVR'
 
 def completed_merger(t):
     return any(
-        re.search(r'\b(?:closed|completed|consummated)\s+(?:(?:the|its|their|previously|announced)\s+)*(?:merger|business combination)\b|\b(?:merger|business combination)\s+(?:(?:has|have) (?:been )?|was |is now )?(?:successfully )?(?:closed|completed|consummated)\b', sentence, re.I)
-        and not re.search(r'\bif\b|\bnot\b|\bwill\b|\bwould\b|\bmay\b|\bexpected\b|\banticipat\w*\b|\bpending\b|\bremains\b|\bto be (?:closed|completed|consummated)\b|\bsubject to\b|\bfiling\b|\bregistration statement\b', sentence, re.I)
+        re.search(r'\b(?:closed|completed|consummated)\s+(?:(?:the|its|their|previously|announced)\s+)*(?:merger|business combination)\b|\b(?:merger|business combination)\s+(?:(?:has|have) (?:been )?|was |is now )?(?:successfully )?(?:closed|completed|consummated)\b|\bannounc(?:ed|es|ing)\s+(?:the )?(?:closing|completion|consummation)\s+of\s+(?:(?:the|its|their|previously|announced)\s+)*(?:merger|business combination)\b', sentence, re.I)
+        and not re.search(r'\bif\b|\bnot\b|\bwill\b|\bwould\b|\bmay\b|\bexpected\b|\banticipat\w*\b|\bpending\b|\bremains\b|\bto be (?:closed|completed|consummated)\b|\bsubject to\b|\bfiling\b|\bregistration statement\b|\bscheduled\b|\bplanned (?:for|to)\b|\bslated (?:for|to)\b', sentence, re.I)
         for sentence in re.split(r'(?<=[.;])\s+', t))
 
 

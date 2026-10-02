@@ -12,6 +12,10 @@ def _m(x):
 def _active_common(c):
     return c.security_type == 'COMMON_EQUITY' and c.gate_status != 'EXCLUDED' and c.event_status not in {'TERMINAL','CANCELLED'}
 
+def _currency_m(amount, currency):
+    prefix = {'CAD':'C$', 'USD':'US$', 'AUD':'A$', 'HKD':'HK$', 'NZD':'NZ$', 'SGD':'S$', 'EUR':'€', 'GBP':'£'}.get(currency, currency + ' ')
+    return prefix + _m(amount).removeprefix('$')
+
 def _terms(c):
     t=c.event_terms; parts=[]
     if t.get('capital_structure_action') == 'DEBT_EQUITY_EXCHANGE': parts.append('Debt exchanged for common stock; incremental shares require reconciliation')
@@ -45,7 +49,13 @@ def _terms(c):
         if key in t: parts.append(f"{key}: {t[key]}" + (' (planned)' if key in {'last_trading_date','dissolution_date'} else ''))
     if t.get('due_bills'): parts.append('Due bills apply; record date alone does not establish distribution entitlement')
     if 'new_warrant_shares' in t: parts.append(f"New warrants: {t['new_warrant_shares']:,} shares at ${t['new_warrant_exercise_price_usd']:.2f}; reconcile with outstanding baseline")
-    if 'sale_price_estimate_usd' in t: parts.append(f"Sale price estimate: {_m(t['sale_price_estimate_usd'])}")
+    if 'sale_price_amount' in t:
+        price = _currency_m(t['sale_price_amount'], t['sale_price_currency'])
+        if t.get('sale_payment_type') == 'CASH': price += ' cash'
+        if t.get('usd_equivalent_source') == 'ISSUER_DISCLOSED': price += f" (~{_currency_m(t['sale_price_estimate_usd'], 'USD')}, issuer disclosed)"
+        parts.append('Purchase price: ' + price)
+    elif 'sale_price_estimate_usd' in t: parts.append(f"Sale price estimate: {_m(t['sale_price_estimate_usd'])}")
+    if 'earnout_max_amount' in t: parts.append(f"Earnout: up to {_currency_m(t['earnout_max_amount'], t['earnout_currency'])} (contingent)")
     if 'repurchase_total_usd' in t: parts.append(f"Repurchase cap: {_m(t['repurchase_total_usd'])} total, increase {_m(t['repurchase_increment_usd'])}" + (' (conditional on closing)' if t.get('repurchase_conditional') else ''))
     if c.dilution.pending_stock_consideration_usd is not None: parts.append(f"Pending stock consideration: ${c.dilution.pending_stock_consideration_usd/1e6:.3f}M; incremental share count unresolved")
     return '; '.join(parts) or c.event_summary
@@ -87,7 +97,7 @@ def write_outputs(candidates,cfg,out_dir):
         c.event_type in {'MERGER_CASH_CVR','MERGER_CASH_STOCK','MERGER_STOCK','REVERSE_MERGER_CVR','MERGER_REVERSE_MERGER','LIQUIDATION_DISTRIBUTION'} or
         (c.event_type == 'DEBT_RESTRUCTURING' and c.event_terms.get('materiality') == 'STRUCTURAL') or
         c.dilution.pending_stock_consideration_usd is not None or
-        any(k in c.event_terms for k in ('new_warrant_shares','sale_price_estimate_usd','repurchase_total_usd')))]
+        any(k in c.event_terms for k in ('new_warrant_shares','sale_price_amount','sale_price_estimate_usd','repurchase_total_usd')))]
     if material:
         md += ['## Material special situations — source review required','']
         for c in material:

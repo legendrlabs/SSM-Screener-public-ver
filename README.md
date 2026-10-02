@@ -1,4 +1,4 @@
-# Special Situation Microcap Screener (SSM) v1.0.0
+# Special Situation Microcap Screener (SSM) v1.0.1
 
 미국 상장 마이크로캡 중 **구조적 재평가 가능성이 있는 특수상황**을 재현 가능한 규칙으로 1차 선별하는 스크리너입니다.
 

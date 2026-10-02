@@ -11,6 +11,10 @@ PRIORITY = {'TERMINAL_MERGER': 110, 'MERGER_TERMINATED': 105,
             'LARGE_CONTRACT': 50, 'BUSINESS_PIVOT': 45,
             'LISTING_CAPITAL_STRUCTURE': 25}
 MONTH_DATE = r'([A-Z][a-z]+\s+\d{1,2},\s*20\d{2})'
+MONEY = r'(?<![A-Za-z])(?P<currency>[A-Z]{0,3}\$|€|£)\s*(?P<amount>[\d.]+)\s*million'
+CURRENCIES = {'$': 'USD', 'US$': 'USD', 'USD$': 'USD', 'C$': 'CAD', 'CAD$': 'CAD',
+              'A$': 'AUD', 'AU$': 'AUD', 'AUD$': 'AUD', 'HK$': 'HKD', 'NZ$': 'NZD',
+              'S$': 'SGD', 'SG$': 'SGD', '€': 'EUR', '£': 'GBP'}
 
 
 def select_event(reviewed):
@@ -87,7 +91,7 @@ def event_terms(text, kind, *, cleaned=False):
                 terms['capital_counts_require_reconciliation'] = True
             if re.search(r'all references to share and per share amounts.{0,80}reflect (?:the )?Reverse Stock Split', t, re.I):
                 terms['reported_share_units'] = 'POST_REVERSE_SPLIT'
-            symbol = re.search(r'common stock.{0,180}under the ticker symbol [“"]([A-Z]+)[,”"]', t, re.I)
+            symbol = re.search(r'(?:common stock|ordinary shares).{0,220}under the ticker symbol [“"]([A-Z]+)[.,”"]', t, re.I)
             if symbol:
                 terms['post_transaction_ticker'] = symbol.group(1).upper()
     if kind == 'LIQUIDATION_DISTRIBUTION':
@@ -177,9 +181,24 @@ def event_terms(text, kind, *, cleaned=False):
             terms['revolving_commitment_after_usd'] = float(commitments.group(2)) * 1e6
             terms['commitment_change_is_debt_reduction'] = False
     if kind == 'ASSET_SALE_ACQUISITION':
-        amount = re.search(r'aggregate purchase price.{0,70}?\$\s*([\d.]+)\s*million', t, re.I)
+        amount = re.search(r'aggregate purchase price.{0,70}?' + MONEY, t, re.I)
         if amount:
-            terms['sale_price_estimate_usd'] = float(amount.group(1)) * 1e6
+            currency = CURRENCIES.get(amount['currency'].upper(), 'UNVERIFIED')
+            terms.update(sale_price_amount=float(amount['amount']) * 1e6, sale_price_currency=currency)
+            if re.match(r'\s+in cash', t[amount.end():], re.I):
+                terms['sale_payment_type'] = 'CASH'
+            if currency == 'USD':
+                terms['sale_price_estimate_usd'] = terms['sale_price_amount']
+            else:
+                equivalent = re.search(r'(?:cash consideration paid in (?:the )?acquisition|purchase price.{0,70}?(?:approximately|equivalent to)).{0,30}?US\$\s*([\d.]+)\s*million', t, re.I)
+                if equivalent:
+                    terms['sale_price_estimate_usd'] = float(equivalent.group(1)) * 1e6
+                    terms['usd_equivalent_source'] = 'ISSUER_DISCLOSED'
+        earnout = re.search(r'earnout (?:payment )?.{0,50}?up to\s*' + MONEY, t, re.I)
+        if earnout:
+            terms.update(earnout_max_amount=float(earnout['amount']) * 1e6,
+                         earnout_currency=CURRENCIES.get(earnout['currency'].upper(), 'UNVERIFIED'),
+                         earnout_conditional=True)
         repurchase = re.search(r'increase.{0,80}repurchase authorization from\s*\$\s*([\d.]+)\s*million to\s*\$\s*([\d.]+)\s*million', t, re.I)
         if repurchase:
             terms['repurchase_total_usd'] = float(repurchase.group(2)) * 1e6
@@ -243,13 +262,13 @@ def review_material_events(sec, cik, discovered, cfg):
     cutoff = (date.today() - timedelta(days=cfg['event_max_age_days'])).isoformat()
     declared_items = set(re.split(r'[,;]', discovered.get('items', '') or ''))
     eligible_discovered = (discovered.get('form') != '8-K' or not discovered.get('items')
-                           or bool(declared_items.intersection(cfg['material_8k_items'])))
+                           or bool(declared_items.intersection(cfg['material_8k_items'] + ['7.01'])))
     filings = {discovered.get('accession') or discovered.get('filename'): dict(discovered)} if eligible_discovered else {}
     for i, form in enumerate(recent.get('form', [])):
         if form != '8-K' or recent['filingDate'][i] < cutoff:
             continue
         items = recent.get('items', [''] * len(recent['form']))[i] or ''
-        if not set(re.split(r'[,;]', items)).intersection(cfg['material_8k_items']):
+        if not set(re.split(r'[,;]', items)).intersection(cfg['material_8k_items'] + ['7.01']):
             continue
         accession = recent['accessionNumber'][i]
         filings[accession] = {'cik': cik, 'form': form, 'filed': recent['filingDate'][i], 'items': items,
@@ -257,13 +276,39 @@ def review_material_events(sec, cik, discovered, cfg):
     reviewed, warnings = [], []
     for filing in filings.values():
         try:
-            reviewed.append(_read_event_filing(sec, cik, filing))
+            event = _read_event_filing(sec, cik, filing)
+            items = {item.strip() for item in re.split(r'[,;]', filing.get('items', '') or '') if item.strip()}
+            # Routine 7.01 announcements stay out; an affirmative merger closing
+            # is economically material regardless of the issuer's item choice.
+            if (filing.get('form') == '8-K' and items and not items.intersection(cfg['material_8k_items'])
+                    and not (event['event_type'] in MERGER_KINDS and event['event_status'] == 'COMPLETED')):
+                continue
+            reviewed.append(event)
         except Exception as exc:
             warnings.append(f"Event review failed for {filing.get('accession')}: {exc}")
     selected = select_event(reviewed)
     if selected:
         selected = dict(selected)
         selected['selection_reason'] = 'Retain an active merger/liquidation lifecycle; otherwise select the most recent material economic event.'
+        if selected['event_type'] in MERGER_KINDS and selected['event_status'] == 'COMPLETED':
+            for i, form in enumerate(recent.get('form', [])):
+                if form != '25-NSE' or abs((date.fromisoformat(recent['filingDate'][i]) - date.fromisoformat(selected['filed'])).days) > 7:
+                    continue
+                acc = recent['accessionNumber'][i]
+                url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}/{recent['primaryDocument'][i]}"
+                try:
+                    removal = sec.submission_text(url)
+                    # Exchange-certified exchange of the registered common class,
+                    # not a proposed delisting or removal of preferred/debt alone.
+                    exchanged = re.search(r'<input\b[^>]*\bchecked\b[^>]*>\s*17 CFR 240\.12d2-2\(a\)\(3\)', removal, re.I)
+                    if exchanged and re.search(r'common (?:stock|shares)|ordinary shares', operative_text(removal), re.I):
+                        selected['event_type'], selected['event_status'] = 'TERMINAL_MERGER', 'TERMINAL'
+                        selected['terms']['listing_termination_source_accession'] = acc
+                        selected['sources'] = list(dict.fromkeys(selected['sources'] + [url]))
+                        selected['selection_reason'] += ' Completed merger and exchange-certified common-class exchange terminate the original listing.'
+                        break
+                except Exception as exc:
+                    warnings.append(f'Completed-merger listing review failed for {acc}: {exc}')
         current = operative_text(selected['combined_text'])
         missing_payout = not any(k in selected['terms'] for k in ('cash_per_share_usd', 'stock_exchange_ratio', 'legacy_holder_ownership_pct'))
         if (selected['event_type'] in MERGER_KINDS and missing_payout
