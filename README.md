@@ -31,7 +31,7 @@
 
 ## Python CLI로 직접 설치
 
-Python 3.11 이상이 필요합니다. ZIP을 풀고 `special-situation-microcap` 폴더 안에서 실행합니다. 이 배포판은 Python CLI이며 EXE가 아닙니다.
+Python 3.11 이상이 필요합니다. 이 저장소를 내려받아 압축을 풀거나 clone한 뒤, `pyproject.toml`이 있는 폴더 안에서 실행합니다. 이 배포판은 Python CLI이며 EXE가 아닙니다.
 
 Windows PowerShell:
 
