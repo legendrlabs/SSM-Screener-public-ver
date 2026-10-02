@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "special-situation-microcap"
+version = "1.0.0"
+description = "SEC-first deterministic special-situation microcap screener"
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.31",
+  "pandas>=2.0",
+  "yfinance>=0.2.50"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+ssm = "ssm.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ssm*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

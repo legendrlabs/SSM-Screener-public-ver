@@ -1,0 +1,34 @@
+name: SSM Scan
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ssm-distribution-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install .
+      - name: Run screener
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          SSM_MARKET_PROVIDER: yfinance
+          SSM_SEC_DISCOVERY_MODE: atom
+        run: ssm scan --days 7 --out output
+      - name: Downloadable scan outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssm-scan-${{ github.run_id }}
+          path: output/
+          retention-days: 7

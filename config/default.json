@@ -1,0 +1,16 @@
+{
+  "exchanges": ["Nasdaq", "NYSE", "NYSE American"],
+  "market_cap_min": 20000000,
+  "market_cap_max": 500000000,
+  "market_cap_expand_max": 1000000000,
+  "adv20_pass_min": 250000,
+  "adv20_watch_min": 50000,
+  "event_max_age_days": 60,
+  "financial_filing_max_age_days": 210,
+  "market_data_max_age_days": 3,
+  "max_candidates": 5,
+  "event_forms": ["8-K", "S-1", "S-3", "424B3", "424B5", "SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A", "DEF 14A", "PRE 14A"],
+  "material_8k_items": ["1.01", "2.01", "2.03", "3.02", "3.03", "5.01", "5.03", "5.07", "8.01"],
+  "late_move_1d_pct": 50,
+  "late_move_5d_pct": 100
+}
