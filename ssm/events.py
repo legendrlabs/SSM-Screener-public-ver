@@ -2,6 +2,7 @@
 from datetime import date, datetime, timedelta
 import re
 from .recapitalization import capital_context
+from .transactions import reduce_transactions
 
 from .event_rules import classify_event, operative_text, liquidation_evidence, adopted_rights_plan, resale_registration, closed_debt_equity_exchange, merger_share_consideration, merger_parent_name, completed_merger, MERGER_KINDS
 
@@ -21,6 +22,7 @@ CURRENCIES = {'$': 'USD', 'US$': 'USD', 'USD$': 'USD', 'C$': 'CAD', 'CAD$': 'CAD
 def select_event(reviewed):
     if not reviewed:
         return None
+    reviewed = reduce_transactions(reviewed)
     latest_merger = max((x.get('filed', '') for x in reviewed if x['event_type'] in MERGER_KINDS), default='')
     eligible = [x for x in reviewed if not (x['event_type'] == 'MERGER_TERMINATED' and x.get('filed', '') < latest_merger)]
     # Retain active merger/liquidation lifecycles through routine filings.
