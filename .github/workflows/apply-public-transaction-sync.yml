@@ -1,0 +1,45 @@
+name: Apply public transaction sync
+on:
+  push:
+    branches: [fix/transaction-capital-generalization-20261003]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/transaction-capital-generalization-20261003
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Apply canonical merger kinds and remove diagnostics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('ssm/event_rules.py')
+          s = p.read_text()
+          old = "MERGER_KINDS = {'MERGER_REVERSE_MERGER', 'MERGER_CASH_CVR', 'REVERSE_MERGER_CVR',\n                'MERGER_CVR_UNVERIFIED', 'MERGER_CASH_STOCK', 'MERGER_STOCK'}"
+          new = "MERGER_KINDS = {'MERGER_REVERSE_MERGER', 'MERGER_CASH_CVR', 'REVERSE_MERGER_CVR',\n                'MERGER_CVR_UNVERIFIED', 'MERGER_CASH_STOCK', 'MERGER_STOCK',\n                'MERGER_CASH', 'MERGER_STOCK_CVR', 'MERGER_UNVERIFIED', 'REVERSE_MERGER'}"
+          if old not in s:
+              raise SystemExit('expected MERGER_KINDS block not found')
+          p.write_text(s.replace(old, new, 1))
+          Path('ssm/__init__.py').write_text('__version__ = "1.1.1"\n')
+          Path('.github/workflows/tests.yml').write_text('''name: Tests\non:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n\njobs:\n  pytest:\n    runs-on: ubuntu-slim\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with:\n          python-version: "3.11"\n      - run: python -m pip install --upgrade pip\n      - run: pip install -e ".[dev]"\n      - run: pytest -q\n''')
+          Path('.github/workflows/apply-public-transaction-sync.yml').unlink()
+          PY
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+      - name: Commit clean transaction sync
+        run: |
+          git config user.name "ssm-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add ssm/event_rules.py ssm/__init__.py .github/workflows/tests.yml .github/workflows/apply-public-transaction-sync.yml
+          git commit -m "fix: recognize canonical transaction kinds in public engine"
+          git push origin HEAD:fix/transaction-capital-generalization-20261003
