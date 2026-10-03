@@ -58,6 +58,22 @@ def test_noninteractive_update_notice_never_prompts_or_updates(monkeypatch, caps
     assert "ssm update" in capsys.readouterr().err
 
 
+def test_failed_interactive_update_keeps_current_version_explicit(monkeypatch, capsys):
+    monkeypatch.setattr(updater, "version_status", lambda: UPDATE_STATUS)
+
+    def fail_update(dry_run=False):
+        raise RuntimeError("synthetic update failure")
+
+    monkeypatch.setattr(updater, "perform_update", fail_update)
+
+    updated = updater.maybe_update_notice(interactive=True, input_fn=lambda prompt: "yes")
+
+    assert updated is False
+    stderr = capsys.readouterr().err
+    assert "Update failed; continuing with SSM 1.1.3" in stderr
+    assert "synthetic update failure" in stderr
+
+
 def test_cli_restarts_original_command_after_accepted_update(monkeypatch):
     restarted = []
     monkeypatch.setattr(cli, "maybe_update_notice", lambda: True)
