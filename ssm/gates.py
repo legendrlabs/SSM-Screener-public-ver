@@ -14,6 +14,10 @@ def evaluate_gates(c: Candidate, cfg):
     if c.event_terms.get('post_transaction_ticker', c.ticker) != c.ticker: return 'DATA_HOLD', [f"Listing changed to {c.event_terms['post_transaction_ticker']}; ticker, price and share units require reconciliation."]
     if c.event_terms.get('capital_counts_require_reconciliation'): return 'DATA_HOLD', ['Completed-merger capital counts require reconciliation with current common shares and outstanding instruments.']
     if c.security_type == 'UNKNOWN': return 'DATA_HOLD', ['Listed security type is not verified from SEC registered classes.']
+    if c.event_terms.get('capital_context', {}).get('reconciliation_required'):
+        return 'DATA_HOLD', ['Capital issuance/use-of-proceeds context requires post-transaction FD reconciliation; liability improvement does not certify the cap table.']
+    if any(x.get('context', {}).get('reconciliation_required') for x in c.event_terms.get('capital_context_history', [])):
+        return 'DATA_HOLD', ['Interim capital context requires complete post-transaction FD reconciliation.']
     if not c.event_review_complete: return 'DATA_HOLD', ['Material event review is incomplete.']
     if c.event_type == 'MERGER_CVR_UNVERIFIED': return 'DATA_HOLD', ['Merger consideration structure is unverified; CVR alone does not establish cash consideration.']
     if c.event_type == 'DEBT_RESTRUCTURING':

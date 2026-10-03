@@ -11,6 +11,7 @@ from .providers.market import market_snapshot, market_snapshots
 from .financial_review import financial_note_hits, conservative_merge_dilution, cover_page_common_shares, extract_atm_remaining_usd
 from .events import review_material_events, event_terms, event_status
 from .securities import resolve_security
+from .recapitalization import reconcile_capital_context
 
 OFFERING_FORMS = {"S-1", "S-3", "424B3", "424B5"}
 OWNERSHIP_FORMS = {"SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A"}
@@ -319,6 +320,32 @@ def build_candidate(sec, meta, filing, overrides, cfg, snapshot=None):
             c.data_warnings.append(f"Financial filing second-pass error: {e}")
     else:
         c.data_warnings.append("Latest 10-Q/10-K primary document unavailable.")
+
+    capital_events = list(reviewed)
+    if selected and not any(x.get('accession') == selected.get('accession') for x in capital_events):
+        capital_events.append(selected)
+    baseline_date = (financial_record or {}).get('report_date') or (financial_record or {}).get('filed')
+    capital_history = []
+    reissued_identities = {identity for event in capital_events
+                          for identity in event.get('terms', {}).get('capital_context', {}).get('reissued_instrument_identities', [])}
+    for capital_event in sorted(capital_events, key=lambda x: (x.get('filed', ''), x.get('accession', ''))):
+        context = capital_event.get('terms', {}).get('capital_context')
+        if not context:
+            continue
+        # Filing date and the first agreement date are not proof of the actual
+        # capital action's date. Unknown/mixed chronology stays unresolved.
+        event_date = context.get('transaction_date')
+        # Past financing cannot be added to an already newer financial baseline.
+        if event_date and baseline_date and event_date < baseline_date:
+            continue
+        reconcile_capital_context(c.dilution, context, financial_text, event_date, baseline_date, reissued_identities)
+        capital_history.append({'accession': capital_event.get('accession'), 'filed': capital_event.get('filed'),
+                                'sources': capital_event.get('sources', []), 'context': context})
+    if capital_history:
+        c.event_terms['capital_context_history'] = capital_history
+        if any(x['context'].get('reconciliation_required') for x in capital_history):
+            c.dilution.confidence = 'low'
+            c.data_warnings.append('Capital issuance/retirement requires complete post-transaction FD reconciliation; economic context does not clear dilution warnings.')
 
     if c.event_terms.get('warrant_reconciliation_required') and c.dilution.confidence != 'high':
         c.dilution.confidence = 'low'

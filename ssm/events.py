@@ -1,6 +1,7 @@
 """Review source-backed transactions and retain the active economic catalyst."""
 from datetime import date, datetime, timedelta
 import re
+from .recapitalization import capital_context
 
 from .event_rules import classify_event, operative_text, liquidation_evidence, adopted_rights_plan, resale_registration, closed_debt_equity_exchange, merger_share_consideration, merger_parent_name, completed_merger, MERGER_KINDS
 
@@ -210,6 +211,9 @@ def event_terms(text, kind, *, cleaned=False):
             terms['transaction_date'] = datetime.strptime(actual_date.group(1), '%B %d, %Y').date().isoformat()
         except ValueError:
             pass
+    context = capital_context(t)
+    if context:
+        terms['capital_context'] = context
     return terms
 
 

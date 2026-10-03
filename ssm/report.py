@@ -16,8 +16,36 @@ def _currency_m(amount, currency):
     prefix = {'CAD':'C$', 'USD':'US$', 'AUD':'A$', 'HKD':'HK$', 'NZD':'NZ$', 'SGD':'S$', 'EUR':'€', 'GBP':'£'}.get(currency, currency + ' ')
     return prefix + _m(amount).removeprefix('$')
 
+def _capital_terms(cap):
+    parts=[]
+    if cap:
+        parts.append('Capital context: ' + cap['assessment'])
+        if 'authorized_capacity_increase' in cap: parts.append(f"Authorized capacity +{cap['authorized_capacity_increase']:,.0f}; capacity alone is not issued shares")
+        if cap['actual_common_issued'] is not None: parts.append(f"Actual common issued in this event: {cap['actual_common_issued']:,.0f}")
+        if cap.get('actual_common_equivalent_shares') is not None: parts.append(f"Completed common or pre-funded warrant equivalents: {cap['actual_common_equivalent_shares']:,.0f}; common/warrant split unresolved")
+        if cap.get('planned_common_equivalent_shares') is not None: parts.append(f"Planned common or equivalent total: {cap['planned_common_equivalent_shares']:,.0f}; not issued yet")
+        if cap['issuance_increase_pct'] is not None: parts.append(f"Issued/pre-common: {cap['issuance_increase_pct']:.2f}%; existing-holder ownership reduction: {cap['existing_holder_ownership_reduction_pct']:.2f}%")
+        elif cap['actual_common_issued']: parts.append('Pre-transaction common shares unresolved; dilution percentage unavailable')
+        parts.append('Use of proceeds: ' + ', '.join(cap['use_of_proceeds']))
+        if cap.get('reissued_instrument_identities'):parts.append('Issued/reissued senior instruments require matching: '+', '.join(cap['reissued_instrument_identities']))
+        for claim in cap['retirements']:
+            amount=_currency_m(claim['claim_amount'],claim['currency']) if claim['claim_amount'] is not None else 'amount unresolved'
+            parts.append(f"{claim['identity'] or claim['instrument_type']}: {amount} / {claim['status']}")
+        if cap.get('annual_fixed_charge_reduction_usd') is not None: parts.append(f"Source-reported annual fixed-charge reduction: {_currency_m(cap['annual_fixed_charge_reduction_usd'], 'USD')}")
+        if cap.get('removed_fd_equivalents'): parts.append(f"Retired instrument FD equivalents removed after matching: {cap['removed_fd_equivalents']:,.0f}")
+        if cap['reconciliation_required']: parts.append('FD reconciliation pending; context does not waive dilution risk or promote PASS')
+    return parts
+
 def _terms(c):
-    t=c.event_terms; parts=[]
+    t=c.event_terms; parts=_capital_terms(t.get('capital_context', {}))
+    seen={json.dumps(t.get('capital_context', {}),sort_keys=True)}
+    for record in t.get('capital_context_history', []):
+        cap=record['context'];key=json.dumps(cap,sort_keys=True)
+        if key in seen:continue
+        seen.add(key)
+        parts.append('Capital filing '+str(record.get('filed') or record.get('accession') or 'date unresolved'))
+        parts.extend(_capital_terms(cap))
+        if record.get('sources'):parts.append('Capital source: '+', '.join(record['sources']))
     if t.get('capital_structure_action') == 'DEBT_EQUITY_EXCHANGE': parts.append('Debt exchanged for common stock; incremental shares require reconciliation')
     if t.get('consideration_type') == 'STOCK':
         parts.append('Stock consideration')
@@ -97,7 +125,7 @@ def write_outputs(candidates,cfg,out_dir):
         c.event_type in {'MERGER_CASH_CVR','MERGER_CASH_STOCK','MERGER_STOCK','REVERSE_MERGER_CVR','MERGER_REVERSE_MERGER','LIQUIDATION_DISTRIBUTION'} or
         (c.event_type == 'DEBT_RESTRUCTURING' and c.event_terms.get('materiality') == 'STRUCTURAL') or
         c.dilution.pending_stock_consideration_usd is not None or
-        any(k in c.event_terms for k in ('new_warrant_shares','sale_price_amount','sale_price_estimate_usd','repurchase_total_usd')))]
+        any(k in c.event_terms for k in ('capital_context','capital_context_history','new_warrant_shares','sale_price_amount','sale_price_estimate_usd','repurchase_total_usd')))]
     if material:
         md += ['## Material special situations — source review required','']
         for c in material:
