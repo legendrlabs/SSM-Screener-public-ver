@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.4 — 2026-10-03
+
+- 터미널에서 `scan` / `check` 실행 중 새 버전을 감지하면 실제 TTY에서 `Update now? [y/N]` 확인을 표시. 기본값은 거절이며 비대화형 CI/파이프/에이전트 실행은 입력 대기 없이 기존 안내만 출력.
+- 사용자가 업데이트를 승인하면 immutable `release.json` 검증 경로로 업데이트한 뒤 원래 `scan` / `check` 명령을 새 프로세스로 다시 실행해 최신 코드로 작업을 계속함.
+- 업데이트 실패 시 실패 원인과 계속 사용하는 현재 SSM 버전을 명시하고 기존 버전으로 진행.
+- 일반 콘솔 진입점은 `python -m ssm.cli`로 재실행해 Windows의 `ssm.exe` 같은 launcher도 안전하게 처리하고, 스킬 번들의 `scripts/run_ssm.py`는 원래 bundle entrypoint를 유지.
+- ChatGPT/Codex 스킬은 scan/check 전에 버전을 확인하고 새 버전이 있으면 자연어로 업데이트 여부를 질문. `ㅇㅇ`, `ㄱㄱ`, `해줘`, `go ahead`처럼 명확한 승인 표현을 허용하며 `y/n` 형식을 강제하지 않음.
+
 ## 1.1.3 — 2026-10-03
 
 - `release.json`을 수동 관리하지 않고 release/build 과정에서 `pyproject.toml` 버전, release tag, source commit, managed-file SHA-256을 이용해 자동 생성.
