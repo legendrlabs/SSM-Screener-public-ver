@@ -178,7 +178,8 @@ def maybe_update_notice(interactive: bool | None = None, input_fn=None) -> bool:
         result = perform_update(False)
     except Exception as exc:
         print(
-            f"SSM update failed ({type(exc).__name__}: {exc}). Continuing with current version.",
+            f"Update failed; continuing with SSM {status['current']} "
+            f"({type(exc).__name__}: {exc}).",
             file=sys.stderr,
         )
         return False
