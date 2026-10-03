@@ -15,10 +15,11 @@ from .updater import maybe_update_notice, perform_update, version_status
 def _restart_current_command() -> None:
     entrypoint = sys.argv[0]
     args = list(sys.argv[1:])
-    if os.path.basename(entrypoint) == "cli.py":
-        os.execv(sys.executable, [sys.executable, "-m", "ssm.cli", *args])
+    if os.path.basename(entrypoint) == "run_ssm.py":
+        command = [sys.executable, entrypoint, *args]
     else:
-        os.execv(sys.executable, [sys.executable, entrypoint, *args])
+        command = [sys.executable, "-m", "ssm.cli", *args]
+    os.execv(sys.executable, command)
 
 
 def main():
