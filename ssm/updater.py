@@ -148,13 +148,46 @@ def version_status() -> dict:
     return _status_from_manifest(manifest)
 
 
-def maybe_update_notice() -> None:
+def maybe_update_notice(interactive: bool | None = None, input_fn=None) -> bool:
     status = version_status()
-    if status.get("update_available"):
+    if not status.get("update_available"):
+        return False
+
+    print(
+        f"SSM {status['latest']} available (current {status['current']}). Run: ssm update",
+        file=sys.stderr,
+    )
+
+    if interactive is None:
+        interactive = bool(sys.stdin.isatty() and sys.stderr.isatty())
+    if not interactive:
+        return False
+
+    if input_fn is None:
+        input_fn = input
+    try:
+        answer = input_fn("Update now? [y/N]: ")
+    except (EOFError, KeyboardInterrupt):
+        print("Update skipped.", file=sys.stderr)
+        return False
+
+    if str(answer).strip().lower() not in {"y", "yes"}:
+        return False
+
+    try:
+        result = perform_update(False)
+    except Exception as exc:
         print(
-            f"SSM {status['latest']} available (current {status['current']}). Run: ssm update",
+            f"Update failed; continuing with SSM {status['current']} "
+            f"({type(exc).__name__}: {exc}).",
             file=sys.stderr,
         )
+        return False
+
+    updated = bool(result.get("updated"))
+    if updated:
+        print(f"SSM updated to {result.get('latest', status['latest'])}.", file=sys.stderr)
+    return updated
 
 
 def immutable_archive_url(source_commit: str) -> str:

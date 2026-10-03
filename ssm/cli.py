@@ -4,11 +4,22 @@ import argparse
 import csv
 import json
 import os
+import sys
 import tempfile
 
 from .pipeline import scan
 from .report import write_outputs
 from .updater import maybe_update_notice, perform_update, version_status
+
+
+def _restart_current_command() -> None:
+    entrypoint = sys.argv[0]
+    args = list(sys.argv[1:])
+    if os.path.basename(entrypoint) == "run_ssm.py":
+        command = [sys.executable, entrypoint, *args]
+    else:
+        command = [sys.executable, "-m", "ssm.cli", *args]
+    os.execv(sys.executable, command)
 
 
 def main():
@@ -42,7 +53,9 @@ def main():
         print(json.dumps(perform_update(a.dry_run), ensure_ascii=False, indent=2))
         return
 
-    maybe_update_notice()
+    if maybe_update_notice():
+        _restart_current_command()
+        return
 
     if a.cmd == "scan":
         candidates, cfg = scan(a.days, a.config, a.watchlist, a.overrides)

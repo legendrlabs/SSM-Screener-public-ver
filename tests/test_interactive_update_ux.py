@@ -1,0 +1,110 @@
+import sys
+
+import pytest
+
+from ssm import cli, updater
+
+
+UPDATE_STATUS = {
+    "current": "1.1.3",
+    "latest": "1.1.4",
+    "update_available": True,
+}
+
+
+def test_interactive_update_acceptance_runs_verified_update(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(updater, "version_status", lambda: UPDATE_STATUS)
+    monkeypatch.setattr(
+        updater,
+        "perform_update",
+        lambda dry_run=False: calls.append(dry_run) or {"updated": True, "latest": "1.1.4"},
+    )
+
+    updated = updater.maybe_update_notice(interactive=True, input_fn=lambda prompt: "y")
+
+    assert updated is True
+    assert calls == [False]
+    stderr = capsys.readouterr().err
+    assert "1.1.4" in stderr
+    assert "1.1.3" in stderr
+
+
+def test_interactive_update_decline_continues_without_update(monkeypatch):
+    calls = []
+    monkeypatch.setattr(updater, "version_status", lambda: UPDATE_STATUS)
+    monkeypatch.setattr(updater, "perform_update", lambda dry_run=False: calls.append(dry_run))
+
+    updated = updater.maybe_update_notice(interactive=True, input_fn=lambda prompt: "")
+
+    assert updated is False
+    assert calls == []
+
+
+def test_noninteractive_update_notice_never_prompts_or_updates(monkeypatch, capsys):
+    prompts = []
+    updates = []
+    monkeypatch.setattr(updater, "version_status", lambda: UPDATE_STATUS)
+    monkeypatch.setattr(updater, "perform_update", lambda dry_run=False: updates.append(dry_run))
+
+    updated = updater.maybe_update_notice(
+        interactive=False,
+        input_fn=lambda prompt: prompts.append(prompt) or "y",
+    )
+
+    assert updated is False
+    assert prompts == []
+    assert updates == []
+    assert "ssm update" in capsys.readouterr().err
+
+
+def test_failed_interactive_update_keeps_current_version_explicit(monkeypatch, capsys):
+    monkeypatch.setattr(updater, "version_status", lambda: UPDATE_STATUS)
+
+    def fail_update(dry_run=False):
+        raise RuntimeError("synthetic update failure")
+
+    monkeypatch.setattr(updater, "perform_update", fail_update)
+
+    updated = updater.maybe_update_notice(interactive=True, input_fn=lambda prompt: "yes")
+
+    assert updated is False
+    stderr = capsys.readouterr().err
+    assert "Update failed; continuing with SSM 1.1.3" in stderr
+    assert "synthetic update failure" in stderr
+
+
+def test_cli_restarts_original_command_after_accepted_update(monkeypatch):
+    restarted = []
+    monkeypatch.setattr(cli, "maybe_update_notice", lambda: True)
+    monkeypatch.setattr(cli, "_restart_current_command", lambda: restarted.append(tuple(sys.argv)))
+    monkeypatch.setattr(sys, "argv", ["ssm", "check", "GPRO"])
+
+    cli.main()
+
+    assert restarted == [("ssm", "check", "GPRO")]
+
+
+def test_restart_console_entrypoint_uses_module_relaunch(monkeypatch):
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["ssm.exe", "check", "GPRO"])
+    monkeypatch.setattr(cli.os, "execv", lambda executable, command: calls.append((executable, command)))
+
+    cli._restart_current_command()
+
+    assert calls == [
+        (sys.executable, [sys.executable, "-m", "ssm.cli", "check", "GPRO"])
+    ]
+
+
+def test_restart_bundled_script_preserves_bundle_entrypoint(monkeypatch):
+    calls = []
+    entrypoint = "/bundle/scripts/run_ssm.py"
+    monkeypatch.setattr(sys, "argv", [entrypoint, "scan"])
+    monkeypatch.setattr(cli.os, "execv", lambda executable, command: calls.append((executable, command)))
+
+    cli._restart_current_command()
+
+    assert calls == [
+        (sys.executable, [sys.executable, entrypoint, "scan"])
+    ]
