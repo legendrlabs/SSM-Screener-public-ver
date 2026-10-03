@@ -83,3 +83,28 @@ def test_cli_restarts_original_command_after_accepted_update(monkeypatch):
     cli.main()
 
     assert restarted == [("ssm", "check", "GPRO")]
+
+
+def test_restart_console_entrypoint_uses_module_relaunch(monkeypatch):
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["ssm.exe", "check", "GPRO"])
+    monkeypatch.setattr(cli.os, "execv", lambda executable, command: calls.append((executable, command)))
+
+    cli._restart_current_command()
+
+    assert calls == [
+        (sys.executable, [sys.executable, "-m", "ssm.cli", "check", "GPRO"])
+    ]
+
+
+def test_restart_bundled_script_preserves_bundle_entrypoint(monkeypatch):
+    calls = []
+    entrypoint = "/bundle/scripts/run_ssm.py"
+    monkeypatch.setattr(sys, "argv", [entrypoint, "scan"])
+    monkeypatch.setattr(cli.os, "execv", lambda executable, command: calls.append((executable, command)))
+
+    cli._restart_current_command()
+
+    assert calls == [
+        (sys.executable, [sys.executable, entrypoint, "scan"])
+    ]
