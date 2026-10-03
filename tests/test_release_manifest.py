@@ -9,6 +9,7 @@ from ssm.release_policy import build_manifest, iter_managed_files, project_versi
 
 
 SOURCE_COMMIT = "a" * 40
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _make_root(tmp_path: Path, version: str = "9.8.7") -> Path:
@@ -36,6 +37,18 @@ def test_manifest_version_matches_pyproject(tmp_path):
     assert manifest["schema_version"] == 1
     assert manifest["version"] == "9.8.7"
     assert manifest["tag"] == "v9.8.7"
+
+
+def test_checked_out_manifest_version_matches_checked_out_pyproject():
+    version = project_version(ROOT)
+    manifest = build_manifest(ROOT, tag=f"v{version}", source_commit=SOURCE_COMMIT)
+
+    assert manifest["version"] == version
+    assert manifest["tag"] == f"v{version}"
+    assert manifest["source_commit"] == SOURCE_COMMIT
+    assert "config/watchlist.csv" not in manifest["managed_files"]
+    assert "config/overrides.json" not in manifest["managed_files"]
+    assert not any(path.startswith("output/") for path in manifest["managed_files"])
 
 
 def test_manifest_rejects_tag_version_mismatch(tmp_path):
