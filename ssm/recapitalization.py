@@ -62,6 +62,7 @@ def _retirement_rows(clause, issuer):
             whole = False
         yield {'instrument_type':typ, 'identity':identity, 'status':status,
                'claim_amount':amount, 'currency':currency, 'whole_instrument':whole,
+               'funding_link_confirmed':bool(re.search(r'(?:used|use)\s+(?:the\s+)?(?:net\s+)?proceeds\s+to\s+(?:'+ACTION+r')',part,re.I)),
                'transaction_date':_action_date(part), 'evidence':part[:500]}
 
 
@@ -92,6 +93,8 @@ def capital_context(text):
             action_date = _action_date(clause)
             if action_date:dates.add(action_date)
             else:unknown_date=True
+            if re.search(r'in exchange for.{0,100}preferred (?:stock|shares)',clause,re.I):purposes.add('PREFERRED_REDEMPTION')
+            elif re.search(r'in exchange for.{0,100}(?:debt|notes|debentures)',clause,re.I):purposes.add('DEBT_REPAYMENT')
         identity = _identity(clause)
         if identity:
             replacement = re.search(r'\b(?:issued|issue|sold|sell)\b(.{0,120}?)'+re.escape(identity), clause, re.I)
@@ -109,7 +112,6 @@ def capital_context(text):
             key=tuple(row[k] for k in ('instrument_type','identity','status','claim_amount','currency','whole_instrument','transaction_date'))
             retirements[key]=row
             if row['status']=='COMPLETED':
-                purposes.add('PREFERRED_REDEMPTION' if row['instrument_type']=='PREFERRED' else 'DEBT_REPAYMENT')
                 if row['transaction_date']:dates.add(row['transaction_date'])
                 else:unknown_date=True
         charge=re.search(r'annual.{0,50}(?:dividend|interest|fixed charge).{0,60}(?:reduced|decreased|eliminated)\s+by\s*'+MONEY,clause,re.I)
@@ -128,8 +130,9 @@ def capital_context(text):
              if len(set(identities)) == len(identities) else None)
     uses=sorted(purposes) or ['UNKNOWN']
     if capacity and not(actual or alternatives or planned or rows or reissued):assessment='ISSUANCE_CAPACITY'
+    elif not(actual or alternatives or planned or reissued) and any(r['status']=='COMPLETED' for r in rows):assessment='RECAPITALIZATION_BALANCE_SHEET_IMPROVEMENT'
     elif uses==['UNKNOWN']:assessment='UNKNOWN_USE_OF_PROCEEDS'
-    elif any(r['status']=='COMPLETED' for r in rows):
+    elif any(r['status']=='COMPLETED' and r['funding_link_confirmed'] for r in rows):
         assessment='RECAPITALIZATION_MIXED' if actual or alternatives or planned else 'RECAPITALIZATION_BALANCE_SHEET_IMPROVEMENT'
     elif purposes.intersection({'DEBT_REPAYMENT','PREFERRED_REDEMPTION'}):assessment='RECAPITALIZATION_MIXED'
     else:assessment='DILUTION_ONLY'

@@ -30,7 +30,9 @@ def _capital_terms(cap):
         if cap.get('reissued_instrument_identities'):parts.append('Issued/reissued senior instruments require matching: '+', '.join(cap['reissued_instrument_identities']))
         for claim in cap['retirements']:
             amount=_currency_m(claim['claim_amount'],claim['currency']) if claim['claim_amount'] is not None else 'amount unresolved'
-            parts.append(f"{claim['identity'] or claim['instrument_type']}: {amount} / {claim['status']}")
+            date=' / '+claim['transaction_date'] if claim.get('transaction_date') else ' / action date unresolved'
+            link='' if claim.get('funding_link_confirmed') else ' / financing-use link unresolved'
+            parts.append(f"{claim['identity'] or claim['instrument_type']}: {amount} / {claim['status']}"+date+link)
         if cap.get('annual_fixed_charge_reduction_usd') is not None: parts.append(f"Source-reported annual fixed-charge reduction: {_currency_m(cap['annual_fixed_charge_reduction_usd'], 'USD')}")
         if cap.get('removed_fd_equivalents'): parts.append(f"Retired instrument FD equivalents removed after matching: {cap['removed_fd_equivalents']:,.0f}")
         if cap['reconciliation_required']: parts.append('FD reconciliation pending; context does not waive dilution risk or promote PASS')

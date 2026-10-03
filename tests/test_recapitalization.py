@@ -69,6 +69,13 @@ def test_unrelated_liabilities_cannot_supply_use_of_proceeds():
     assert c['assessment'] == 'UNKNOWN_USE_OF_PROCEEDS'
 
 
+def test_unlinked_issuer_redemption_is_not_proof_of_equity_proceeds_use():
+    c=context('The Company issued 2 million shares of common stock. On July 1, 2026, the Company redeemed $70 million of Series D Preferred Stock.')
+    assert c['confirmed_claim_reduction_usd'] == 70e6
+    assert c['use_of_proceeds'] == ['UNKNOWN']
+    assert c['assessment'] == 'UNKNOWN_USE_OF_PROCEEDS'
+
+
 def test_foreign_retirement_does_not_become_usd_and_future_payment_not_confirmed():
     c = context('The Company issued 2 million shares of common stock. The Company used the proceeds to repay C$10 million of debt. '
                 'The Company will redeem $35 million of Series D Preferred Stock.')
