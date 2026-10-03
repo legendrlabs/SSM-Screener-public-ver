@@ -19,6 +19,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: python scripts/apply_public_historical_sync.py
+      - run: python scripts/patch_public_historical_compat.py
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
       - run: pytest -q --junitxml=pytest.xml
@@ -33,7 +34,8 @@ jobs:
           git config user.name "ssm-bot"
           git config user.email "actions@users.noreply.github.com"
           rm scripts/apply_public_historical_sync.py
+          rm scripts/patch_public_historical_compat.py
           rm .github/workflows/apply-public-historical-sync.yml
-          git add ssm/recapitalization.py ssm/financial_recapitalization.py scripts/apply_public_historical_sync.py .github/workflows/apply-public-historical-sync.yml
+          git add ssm/recapitalization.py ssm/financial_recapitalization.py scripts/apply_public_historical_sync.py scripts/patch_public_historical_compat.py .github/workflows/apply-public-historical-sync.yml
           git commit -m "feat: classify historical capital without mutating current FD"
           git push origin HEAD:fix/transaction-capital-generalization-20261003
