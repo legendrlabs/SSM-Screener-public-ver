@@ -69,4 +69,5 @@ def test_script_help_works_from_an_unrelated_directory_without_sec_identity(tmp_
     result = subprocess.run([sys.executable, str(ROOT / 'scripts/run_ssm.py'), '--help'],
                             cwd=tmp_path, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
-    assert '{scan,check}' in result.stdout
+    for command in ('scan', 'check', 'version', 'update'):
+        assert command in result.stdout
