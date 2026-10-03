@@ -12,6 +12,7 @@ from .financial_review import financial_note_hits, conservative_merge_dilution, 
 from .events import review_material_events, event_terms, event_status
 from .securities import resolve_security
 from .recapitalization import reconcile_capital_context
+from .financial_recapitalization import financial_capital_contexts
 
 OFFERING_FORMS = {"S-1", "S-3", "424B3", "424B5"}
 OWNERSHIP_FORMS = {"SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A"}
@@ -320,6 +321,20 @@ def build_candidate(sec, meta, filing, overrides, cfg, snapshot=None):
             c.data_warnings.append(f"Financial filing second-pass error: {e}")
     else:
         c.data_warnings.append("Latest 10-Q/10-K primary document unavailable.")
+
+    if financial_text and c.financial_review_complete:
+        # Historical financial evidence is read-only: it cannot re-add shares,
+        # subtract FD instruments, or rewrite the representative 8-K catalyst.
+        try:
+            financial_capital = financial_capital_contexts(financial_text, financial_record, reviewed)
+            if financial_capital:
+                c.event_terms['financial_capital_context_history'] = financial_capital
+                c.dilution.confidence = 'low'
+                c.data_warnings.append('Financial filing capital history is read-only; financing links do not certify current post-transaction FD balances.')
+        except Exception as exc:
+            c.dilution.confidence = 'low'
+            c.event_terms['financial_capital_review_incomplete'] = True
+            c.data_warnings.append(f'Financial capital context review incomplete: {exc}')
 
     capital_events = list(reviewed)
     if selected and not any(x.get('accession') == selected.get('accession') for x in capital_events):

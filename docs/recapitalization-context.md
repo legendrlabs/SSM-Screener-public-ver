@@ -25,6 +25,22 @@ Authorized 증가만으로 common·FD는 늘리지 않는다. 실제 common 발�
 
 ## 적용 범위
 
+### 최신 financial filing의 read-only 보완 검증
+
+`ssm/financial_recapitalization.py`의 `financial_capital_contexts(text, financial_record, events)`는 최신 10-Q/10-K 본문에서 실제 common 발행·retirement·명시적인 자금 사용 연결을 별도 이력으로 추출한다. Dilution 객체를 받지 않으며 current common/FD 잔액을 변경하지 않는다. 기존 10-Q/K cap-table 파서와 8-K 기반 대조는 별도로 유지한다.
+
+결과는 `event_terms.financial_capital_context_history`에 공시 form·accession·filing/report date·SEC URL·발행/상환 날짜·수량·근거 문장을 저장한다. 이미 처리된 8-K와의 반복 거래는 수량·금액을 합산하지 않고 출처를 보존한다. 8-K의 수량으로 보완할 때에는 금융공시에서 동일 financing의 실제 closing 날짜를 확인해야 하며, acquisition 등 다른 행위의 완료 날짜를 사용하지 않는다.
+
+RECAPITALIZATION_* 판정은 명시적인 financing→retirement 연결, 완료 날짜, instrument identity, 원문 통화의 금액, 전량/부분 상환 결과가 맞을 때만 허용한다. 이름 없는 proceeds, 서로 다른 거래나 시리즈의 금액/extent, 불명확한 날짜, 공시 간 금액·통화·extent 충돌은 UNKNOWN으로 남긴다. 미래 옵션 조항의 full redemption은 현재 전량 소멸 근거가 아니다.
+
+Redemption cash price와 liquidation/principal claim은 별개다. 현금 상환액만 명시돼 있으면 cash paid로 표시하며 청구권 총액으로 자동 합산하지 않는다. 일부 preferred가 남으면 남은 동일 클래스 unit 수를 함께 표시하고, 현재 FD에서 전량 제거하지 않는다. 발행 전 common 수가 불명확하면 과거 실제 발행 주식 수를 표시하되 희석률을 만들지 않는다.
+
+금융공시 이력은 별도 `Financial capital history` 섹션에 표시하며 현재 catalyst나 PASS/WATCH의 근거로 승격하지 않는다. 문맥 검증의 오류·미확정은 DATA_HOLD이며 SAFE_TO_ACT를 완화하지 않는다. 모든 financing 이름·서식·표를 자동 해석하는 기능은 아니다.
+
+NNBR의 최신 2026-06-30 10-Q(2026-08-05 제출)는 July 2 발행과 August 5 상환을 연결하는 실제 원문 회귀 점검에 사용한다. September 30 authorized 증가와 이 과거 거래를 합치지 않는다. 과거 exchange의 청구권 금액이 명시되지 않은 경우에도 달러/우선주 units를 common 수로 추정하지 않는다.
+
+### 기존 event filing 검증
+
 이 레이어는 기존 material 8-K 검토 대상의 본문과 인용된 EX-99에서 명시적인 문장을 추출한다. 모든 ATM/워런트 행사, 표, EX-4/EX-10의 자금 목적을 완전히 해석하는 기능은 아니다. 기존 희석·exhibit 검증은 유지하며, 근거가 부족한 자금 목적·주식 수·거래 후 FD는 확정하지 않는다. 자본 행위에 직접 연결된 날짜가 없거나 서로 다르면 발행/소멸을 금융공시 잔액에 자동 반영하지 않는다.
 
 완료 문맥의 이름은 청구권 감소 사실을 설명하며 기업가치 증가나 주가 상승 판단이 아니다. 검증은 NNBR SEC 9/30 본문의 capacity 추출과 계획/완료·금액/주체 연결·동일 instrument 회귀 사례에 한정한다. 배포와 전체 유니버스 재스캔은 별도이며, 기존 스캔 파일은 새 엔진의 재검증 결과로 재표시하지 않는다.

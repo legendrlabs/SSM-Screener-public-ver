@@ -1,4 +1,4 @@
-# Special Situation Microcap Screener (SSM) v1.1.0
+# Special Situation Microcap Screener (SSM) v1.1.1
 
 미국 상장 마이크로캡 중 **구조적 재평가 가능성이 있는 특수상황**을 재현 가능한 규칙으로 1차 선별하는 스크리너입니다.
 
@@ -90,6 +90,8 @@ v1 안정화는 알려진 실전 영향 오류와 회귀 검증 범위의 안정
 증자 규모와 함께 자금 사용 목적을 확인합니다. 부채·우선주 상환과 실제 청구권 감소를 원문 근거로 표시하고, authorized shares 증가는 발행 여력으로 분리합니다. `신주/거래 전 보통주` 발행 증가율과 `신주/거래 후 보통주` 기존 주주의 지분 감소율도 구분합니다. 같은 instrument의 전량 소멸·기준 수·시점이 맞아야 중복 FD 항목을 제거합니다.
 
 예정 발행·상환은 완료로 처리하지 않으며, common/pre-funded warrant 배분이나 거래 후 cap table이 불명확하면 DATA_HOLD를 유지합니다. 재자본화 문맥은 희석 경고를 없애거나 PASS로 승격시키지 않습니다. [문맥 추출 및 검증 범위](docs/recapitalization-context.md)를 참고하세요.
+
+최신 10-Q/10-K의 자본구조·subsequent events 및 관련 자금사용 문맥도 read-only로 보완 검토합니다. 명시적인 거래 날짜·증권·금액·전량/부분 상환 결과와 financing 연결이 맞을 때만 과거 재자본화 이력으로 표시합니다. 금융공시에서 발견한 과거 발행을 현재 common에 재가산하거나 기존 FD 잔액에서 차감하지 않습니다. 8-K와 반복된 거래는 합산하지 않고 근거 링크를 대조하며, 과거 이력은 현재 catalyst와 별도 섹션에 표시합니다.
 
 SEC cover의 등록 증권 종류와 티커를 먼저 연결합니다. 같은 CIK의 보통주·상장 채권·preferred·워런트를 분리하고, ETF 및 비보통주 증권은 `EXCLUDED`로 남깁니다. 확인되지 않은 증권은 `DATA_HOLD`이며 회사 보통주 수를 임의로 적용하지 않습니다.
 

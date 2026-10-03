@@ -21,7 +21,10 @@ def _capital_terms(cap):
     if cap:
         parts.append('Capital context: ' + cap['assessment'])
         if 'authorized_capacity_increase' in cap: parts.append(f"Authorized capacity +{cap['authorized_capacity_increase']:,.0f}; capacity alone is not issued shares")
-        if cap['actual_common_issued'] is not None: parts.append(f"Actual common issued in this event: {cap['actual_common_issued']:,.0f}")
+        if cap.get('read_only'):parts.append('Historical financial evidence only; not added to current common/FD')
+        if cap.get('source_conflict'):parts.append('Conflicting same-transaction amount/currency or retirement extent; financing link remains UNKNOWN')
+        if cap.get('financing_date'):parts.append('Financing completed: '+cap['financing_date'])
+        if cap['actual_common_issued'] is not None: parts.append(f"{'Historical' if cap.get('read_only') else 'Actual'} common issued in this {'transaction' if cap.get('read_only') else 'event'}: {cap['actual_common_issued']:,.0f}")
         if cap.get('actual_common_equivalent_shares') is not None: parts.append(f"Completed common or pre-funded warrant equivalents: {cap['actual_common_equivalent_shares']:,.0f}; common/warrant split unresolved")
         if cap.get('planned_common_equivalent_shares') is not None: parts.append(f"Planned common or equivalent total: {cap['planned_common_equivalent_shares']:,.0f}; not issued yet")
         if cap['issuance_increase_pct'] is not None: parts.append(f"Issued/pre-common: {cap['issuance_increase_pct']:.2f}%; existing-holder ownership reduction: {cap['existing_holder_ownership_reduction_pct']:.2f}%")
@@ -30,9 +33,12 @@ def _capital_terms(cap):
         if cap.get('reissued_instrument_identities'):parts.append('Issued/reissued senior instruments require matching: '+', '.join(cap['reissued_instrument_identities']))
         for claim in cap['retirements']:
             amount=_currency_m(claim['claim_amount'],claim['currency']) if claim['claim_amount'] is not None else 'amount unresolved'
+            if claim.get('cash_paid') is not None:amount='Redemption cash '+_currency_m(claim['cash_paid'],claim['currency'])+'; liquidation-claim amount '+amount
             date=' / '+claim['transaction_date'] if claim.get('transaction_date') else ' / action date unresolved'
             link='' if claim.get('funding_link_confirmed') else ' / financing-use link unresolved'
             parts.append(f"{claim['identity'] or claim['instrument_type']}: {amount} / {claim['status']}"+date+link)
+            if claim.get('retired_instrument_units') is not None:parts.append(f"Retired instrument units: {claim['retired_instrument_units']:,.0f}; units are not common shares or dollar claims")
+            if claim.get('remaining_instrument_units') is not None:parts.append(f"Same-class remaining units: {claim['remaining_instrument_units']:,.0f}; partial retirement" if claim['remaining_instrument_units'] else 'Source reports zero remaining units')
         if cap.get('annual_fixed_charge_reduction_usd') is not None: parts.append(f"Source-reported annual fixed-charge reduction: {_currency_m(cap['annual_fixed_charge_reduction_usd'], 'USD')}")
         if cap.get('removed_fd_equivalents'): parts.append(f"Retired instrument FD equivalents removed after matching: {cap['removed_fd_equivalents']:,.0f}")
         if cap['reconciliation_required']: parts.append('FD reconciliation pending; context does not waive dilution risk or promote PASS')
@@ -133,6 +139,13 @@ def write_outputs(candidates,cfg,out_dir):
         for c in material:
             md += [f"- **{c.ticker}** — {c.event_type} / {c.event_status} / {c.gate_status}. {_terms(c)}.",
                    '  Sources: ' + ', '.join(f'[SEC {i+1}]({url})' for i,url in enumerate(c.event_sources))]
+    financial_history=[c for c in candidates if _active_common(c) and c.event_terms.get('financial_capital_context_history')]
+    if financial_history:
+        md += ['', '## Financial capital history — read-only, not a current catalyst', '']
+        for c in financial_history:
+            for record in c.event_terms['financial_capital_context_history']:
+                md += [f"- **{c.ticker}** — {record['form']} filed {record.get('filed') or 'date unresolved'}. "+'; '.join(_capital_terms(record['context'])),
+                       '  Sources: '+', '.join(f'[SEC {i+1}]({url})' for i,url in enumerate(record.get('sources',[])))]
     if not top:md += ["## NO CANDIDATE",""]
     else:
         md += ["## A — RESEARCH NOW","","|Ticker|Price|Basic MC|Near-FD MC|Strict FD MC|Event|Proof|10-Q/K|Score|","|---|---:|---:|---:|---:|---|---:|---|---:|"]
