@@ -5,6 +5,7 @@ from importlib import metadata
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -18,6 +19,9 @@ REPO = "legendrlabs/SSM-Screener-public-ver"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 MANIFEST_ASSET_NAME = "release.json"
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+PINNED_ARCHIVE_RE = re.compile(
+    rf"^https://github\.com/{re.escape(REPO)}/archive/[0-9a-f]{{40}}\.zip$"
+)
 
 
 def _root() -> Path:
@@ -270,6 +274,31 @@ def _install_mode(root: Path) -> str:
     return "pip"
 
 
+def _update_git_checkout(root: Path, source_commit: str) -> None:
+    if not SOURCE_COMMIT_RE.fullmatch(source_commit):
+        raise ValueError("source_commit must be a full lowercase commit SHA")
+    root = Path(root)
+    dirty = subprocess.check_output(
+        ["git", "-C", str(root), "status", "--porcelain"],
+    )
+    if isinstance(dirty, bytes):
+        dirty = dirty.decode("utf-8", errors="replace")
+    if str(dirty).strip():
+        raise RuntimeError("git checkout has local changes; refusing immutable update")
+
+    subprocess.check_call(["git", "-C", str(root), "fetch", "origin", source_commit])
+    subprocess.check_call(["git", "-C", str(root), "merge", "--ff-only", source_commit])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-e", str(root)])
+
+
+def _update_pip_install(archive_url: str) -> None:
+    if not isinstance(archive_url, str) or not PINNED_ARCHIVE_RE.fullmatch(archive_url):
+        raise ValueError("pip update source must be a commit-pinned SSM archive URL")
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "--no-deps", archive_url]
+    )
+
+
 def perform_update(dry_run: bool = False) -> dict:
     try:
         manifest = fetch_release_manifest()
@@ -284,15 +313,19 @@ def perform_update(dry_run: bool = False) -> dict:
     if dry_run:
         return {**status, "updated": False, "dry_run": True, "mode": mode}
 
-    if mode == "bundle":
-        temp, incoming, downloaded_source_commit = _download_bundle(manifest["source_commit"])
-        try:
-            validate_archive(incoming, manifest, downloaded_source_commit)
+    temp, incoming, downloaded_source_commit = _download_bundle(manifest["source_commit"])
+    try:
+        validate_archive(incoming, manifest, downloaded_source_commit)
+        if mode == "bundle":
             apply_bundle_update(root, incoming, set(manifest["managed_files"]))
-        finally:
-            temp.cleanup()
-    else:
-        raise RuntimeError(f"immutable update mode {mode!r} is not wired yet")
+        elif mode == "git":
+            _update_git_checkout(root, manifest["source_commit"])
+        elif mode == "pip":
+            _update_pip_install(immutable_archive_url(manifest["source_commit"]))
+        else:
+            raise RuntimeError(f"unsupported immutable update mode: {mode}")
+    finally:
+        temp.cleanup()
 
     return {
         "current": status["current"],
