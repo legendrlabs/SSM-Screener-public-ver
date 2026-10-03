@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.2 — 2026-10-03
+
+- `ssm version`으로 현재 설치 버전과 최신 공개 버전을 확인할 수 있게 함.
+- `ssm update`와 `ssm update --dry-run` 추가.
+- `scan` / `check` 실행 시 새 버전이 있으면 업데이트 안내만 표시하고 강제 업데이트는 하지 않음.
+- 업데이트 시 `config/watchlist.csv`, `config/overrides.json`, `output/`, `SEC_USER_AGENT` 보존.
+- 번들 파일 교체 중 실패하면 덮어쓴 파일을 기존 상태로 롤백.
+- Git checkout은 fast-forward-only pull, 일반 pip 설치본은 공개 GitHub archive에서 업데이트.
+- v1.1.1 이하 설치본은 updater가 없으므로 v1.1.2로 올라올 때 한 번만 재설치 필요.
+
 ## 1.1.1 — 2026-10-03
 
 - 최신 10-Q/10-K의 자본구조·subsequent events 및 관련 자금사용 문맥에 read-only 재자본화 보완 검증 추가.
