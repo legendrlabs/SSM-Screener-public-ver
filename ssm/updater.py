@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from io import BytesIO
 from importlib import metadata
 from pathlib import Path
 import re
 import shutil
 import sys
 import tempfile
+import zipfile
 
 import requests
 
@@ -118,6 +120,16 @@ def latest_version(timeout: float = 2.0) -> str:
     return fetch_release_manifest(timeout=timeout)["version"]
 
 
+def _status_from_manifest(manifest: dict) -> dict:
+    current = current_version()
+    latest = manifest["version"]
+    return {
+        "current": current,
+        "latest": latest,
+        "update_available": _version_tuple(latest) > _version_tuple(current),
+    }
+
+
 def version_status() -> dict:
     current = current_version()
     try:
@@ -129,12 +141,7 @@ def version_status() -> dict:
             "update_available": False,
             "check_error": f"{type(exc).__name__}: {exc}",
         }
-    latest = manifest["version"]
-    return {
-        "current": current,
-        "latest": latest,
-        "update_available": _version_tuple(latest) > _version_tuple(current),
-    }
+    return _status_from_manifest(manifest)
 
 
 def maybe_update_notice() -> None:
@@ -177,17 +184,26 @@ def validate_archive(incoming_root: Path, manifest: dict, downloaded_source_comm
             raise ValueError(f"managed-file hash mismatch: {path_text}")
 
 
-def apply_bundle_update(installed_root: Path, incoming_root: Path) -> dict:
+def apply_bundle_update(
+    installed_root: Path,
+    incoming_root: Path,
+    managed_paths: set[str] | None = None,
+) -> dict:
     installed_root = Path(installed_root)
     incoming_root = Path(incoming_root)
     overwritten: list[tuple[Path, Path]] = []
     created: list[Path] = []
     copied = 0
 
+    if managed_paths is None:
+        sources = sorted(p for p in incoming_root.rglob("*") if p.is_file())
+    else:
+        sources = [incoming_root / _manifest_path(path_text) for path_text in sorted(managed_paths)]
+
     with tempfile.TemporaryDirectory(prefix="ssm-update-backup-") as backup_dir:
         backup_root = Path(backup_dir)
         try:
-            for src in sorted(p for p in incoming_root.rglob("*") if p.is_file()):
+            for src in sources:
                 relative = src.relative_to(incoming_root)
                 if is_preserved_path(relative) or ".git" in relative.parts:
                     continue
@@ -217,23 +233,71 @@ def apply_bundle_update(installed_root: Path, incoming_root: Path) -> dict:
     return {"mode": "bundle", "files_updated": copied}
 
 
+def _safe_extract_archive(payload: bytes, destination: Path) -> Path:
+    with zipfile.ZipFile(BytesIO(payload)) as archive:
+        for member in archive.infolist():
+            member_path = Path(member.filename)
+            if member_path.is_absolute() or ".." in member_path.parts:
+                raise ValueError(f"unsafe archive path: {member.filename}")
+        archive.extractall(destination)
+    roots = [path for path in destination.iterdir() if path.is_dir()]
+    if len(roots) != 1:
+        raise RuntimeError("unexpected GitHub archive layout")
+    return roots[0]
+
+
+def _download_bundle(
+    source_commit: str,
+    timeout: float = 30.0,
+) -> tuple[tempfile.TemporaryDirectory, Path, str]:
+    url = immutable_archive_url(source_commit)
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
+    temp = tempfile.TemporaryDirectory(prefix="ssm-update-")
+    try:
+        incoming = _safe_extract_archive(response.content, Path(temp.name))
+    except Exception:
+        temp.cleanup()
+        raise
+    return temp, incoming, source_commit
+
+
 def _install_mode(root: Path) -> str:
     if (root / ".git").exists():
         return "git"
-    if (root / "SKILL.md").exists() and (root / "pyproject.toml").exists():
+    if (root / "pyproject.toml").exists() and (root / "ssm").is_dir():
         return "bundle"
     return "pip"
 
 
 def perform_update(dry_run: bool = False) -> dict:
-    status = version_status()
-    if status.get("latest") is None:
-        raise RuntimeError(f"unable to check latest version: {status.get('check_error', 'unknown error')}")
-    if not status["update_available"]:
-        return {**status, "updated": False, "mode": _install_mode(_root())}
+    try:
+        manifest = fetch_release_manifest()
+    except Exception as exc:
+        raise RuntimeError(f"unable to check latest version: {type(exc).__name__}: {exc}") from exc
 
-    mode = _install_mode(_root())
+    status = _status_from_manifest(manifest)
+    root = _root()
+    mode = _install_mode(root)
+    if not status["update_available"]:
+        return {**status, "updated": False, "mode": mode}
     if dry_run:
         return {**status, "updated": False, "dry_run": True, "mode": mode}
 
-    raise RuntimeError("immutable update application is not wired yet")
+    if mode == "bundle":
+        temp, incoming, downloaded_source_commit = _download_bundle(manifest["source_commit"])
+        try:
+            validate_archive(incoming, manifest, downloaded_source_commit)
+            apply_bundle_update(root, incoming, set(manifest["managed_files"]))
+        finally:
+            temp.cleanup()
+    else:
+        raise RuntimeError(f"immutable update mode {mode!r} is not wired yet")
+
+    return {
+        "current": status["current"],
+        "latest": status["latest"],
+        "updated": True,
+        "mode": mode,
+        "preserved": ["config/watchlist.csv", "config/overrides.json", "output/", "SEC_USER_AGENT"],
+    }
