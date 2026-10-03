@@ -4,9 +4,13 @@ No Dilution object enters this module. Neither reported issuance nor retired
 claims can change the current common/FD balances or certify the cap table.
 """
 import re
+import hashlib
+import json
+from .financial_review import cover_page_common_shares, _cover_plain_text
+from .transactions import iso_date, LEGAL
 
 from .capital_evidence import capital_clauses
-from .recapitalization import Q, MONEY, FX, FUTURE, _action_date, _identity, _retirement_rows, quantity
+from .recapitalization import Q, MONEY, FX, FUTURE, _action_date, _identity, _retirement_rows, _retirement_extent_scope, quantity
 
 ISSUER = r'\b(?:Company|we|registrant|issuer)\b'
 COMMON = r'(?P<shares>'+Q+r')\s+(?:newly issued\s+|new\s+)?shares\s+of\s+(?:(?:the\s+)?Company[’\x27]s\s+|our\s+)?common stock'
@@ -48,8 +52,12 @@ def _issuances(clauses):
         if not name and re.search(r'\bexchange\b|\bexchanged\b',clause,re.I):name='common exchange'
         shares=quantity(common['shares'])
         alternative=bool(re.search(r'\bor\b.{0,40}pre[- ]?funded',clause,re.I))
-        key=(when,shares,name,alternative)
-        found[key]={'date':when,'shares':shares,'name':name,'alternative':alternative,'evidence':clause[:1200]}
+        counterparties=sorted(set(n.lower() for n in re.findall(LEGAL,clause)))
+        labels=re.findall(r'\(the\s+[“\"]([^”\"]+)[”\"]\)',clause,re.I)
+        financing_identity='|'.join(counterparties+sorted(label.lower() for label in labels)) or None
+        key=(when,shares,name,alternative,financing_identity)
+        found[key]={'date':when,'shares':shares,'name':name,'alternative':alternative,
+                    'financing_identity':financing_identity,'evidence':clause[:1200]}
     return list(found.values())
 
 
@@ -72,7 +80,8 @@ def _retirements(clauses):
             units=re.search(r'\b(?:redeemed|exchanged|converted)\s+('+Q+r')\s+shares of\s+(?:'+object_name+r')',action,re.I)
             row['retired_instrument_units']=quantity(units[1]) if units else None
             if not row['whole_instrument']:
-                row['whole_instrument']=False if re.search(r'\bportion\b|\bpartial\w*\b',action,re.I) else None
+                extent_scope=_retirement_extent_scope(action)
+                row['whole_instrument']=False if re.search(r'\bportion\b|\bpartial\w*\b',extent_scope,re.I) else None
             remaining=[]
             for other in clauses:
                 if not row['identity'] or _canonical(_identity(other))!=row['identity'] or _action_date(other)!=row['transaction_date']:continue
@@ -91,6 +100,7 @@ def _retirements(clauses):
                     row['whole_instrument']=None
             if len(balances)>1:row['whole_instrument']=None
             key=tuple(row.get(k) for k in ('transaction_date','identity','status','claim_amount','cash_paid','currency','whole_instrument'))
+            if not row['identity']:key+=(re.sub(r'\s+',' ',clause).strip().lower(),)
             found[key]=row
     return list(found.values())
 
@@ -133,7 +143,51 @@ def _record_context(issue, retirements, confirmed):
             'issuance_evidence':issue['evidence']}
 
 
-def financial_capital_contexts(text, financial_record, events=()):
+def _classify_current_impact(context,financial_record,baseline,retired,clauses):
+    """Classify history without mutating or certifying current FD balances."""
+    period=financial_record.get('report_date');when=context.get('financing_date') or context.get('transaction_date');reasons=[]
+    dates=[when]+[r.get('transaction_date') for r in context['retirements']]
+    if any(not d for d in dates):reasons.append('UNKNOWN_ACTION_DATE')
+    if not period:reasons.append('UNKNOWN_FINANCIAL_PERIOD')
+    if period and any(d and d>period for d in dates):reasons.append('SUBSEQUENT_EVENT')
+    if context.get('actual_common_equivalent_shares') is not None:reasons.append('COMMON_WARRANT_SPLIT_UNRESOLVED')
+    if context.get('actual_common_issued') is None:reasons.append('ISSUANCE_QUANTITY_UNRESOLVED')
+    if context.get('source_conflict') or baseline.get('share_count_conflict'):reasons.append('SOURCE_CONFLICT')
+    asof=baseline.get('as_of')
+    if asof and when and when>asof:reasons.append('AFTER_CURRENT_SHARE_BASELINE')
+    for retirement in context['retirements']:
+        later=[r for r in retired if r.get('identity') and r.get('identity')==retirement.get('identity')
+               and r.get('transaction_date') and retirement.get('transaction_date')
+               and retirement['transaction_date']<r['transaction_date']<= (period or '')
+               and r.get('status')=='COMPLETED' and r.get('whole_instrument') is True]
+        extinction=max(later,key=lambda r:r['transaction_date']) if later else None
+        if extinction:
+            reissued=any(_canonical(_identity(clause))==retirement['identity'] and _action_date(clause)
+                         and _action_date(clause)>extinction['transaction_date']
+                         and re.search(ISSUER+r'\s+(?:has\s+)?issued\b.{0,150}?'+re.escape(retirement['identity']),clause,re.I)
+                         for clause in clauses)
+            if not reissued:
+                retirement['current_instrument_status']='EXTINGUISHED_LATER'
+                retirement['later_extinction_date']=extinction['transaction_date']
+                retirement['later_extinction_evidence']=extinction['evidence']
+                continue
+        if retirement.get('status')!='COMPLETED' or retirement.get('whole_instrument') is not True:
+            reasons.append('RETIREMENT_EXTENT_OR_SURVIVING_INSTRUMENT_UNRESOLVED')
+    fully_retired=(context['retirements'] and all(r.get('whole_instrument') is True and r.get('status')=='COMPLETED' for r in context['retirements'])
+                   and (context.get('financing_name')=='common exchange' or context.get('link_verification')=='CONFIRMED'))
+    instrument_language=context.get('issuance_evidence','')
+    if fully_retired:
+        for row in context['retirements']:
+            if row.get('identity'):instrument_language=re.sub(re.escape(row['identity']),'_RETIRED_INSTRUMENT_',instrument_language,flags=re.I)
+    if re.search(r'warrants?|convertible|preferred|earn[- ]?out',instrument_language,re.I):
+        reasons.append('ISSUANCE_LINKED_INSTRUMENT_REQUIRES_RECONCILIATION')
+    context.update(classification='CURRENT_RECONCILIATION_REQUIRED' if reasons else 'HISTORICAL_INCLUDED',
+                   current_fd_impact='UNRESOLVED' if reasons else 'NONE',
+                   reconciliation_required=bool(reasons),reconciliation_reasons=sorted(set(reasons)),
+                   common_count_reconciliation='READ_ONLY_FINANCIAL_EVIDENCE' if reasons else 'ALREADY_INCLUDED_OR_HISTORICAL',
+                   financial_period=period,common_baseline_as_of=asof)
+
+def financial_capital_contexts(text, financial_record, events=(), *, baseline=None):
     """Keep dated historical transactions once, supplementing source links only.
 
     A positive recapitalization label needs completed, named and quantified
@@ -141,6 +195,11 @@ def financial_capital_contexts(text, financial_record, events=()):
     Ambiguous evidence stays visible with UNKNOWN and never clears DATA_HOLD.
     """
     if financial_record.get('form') not in {'10-Q','10-K','10-Q/A','10-K/A'}:return []
+    baseline=dict(baseline or {})
+    if not baseline.get('as_of'):
+        cover=_cover_plain_text(text)
+        match=re.search(r'\bas of\s+([A-Za-z]+\s+\d{1,2},\s*20\d{2})(?=[^.]{0,400}\bcommon stock\b[^.]{0,160}\boutstanding\b)',cover,re.I)
+        if match and cover_page_common_shares(text)>0:baseline['as_of']=iso_date(match[1])
     clauses=capital_clauses(text)
     issuances=_issuances(clauses)
     retired=_retirements(clauses)
@@ -156,17 +215,23 @@ def financial_capital_contexts(text, financial_record, events=()):
             if (issue['name'],issue['date']) in closures and issue not in issuances:
                 if not any((i['date'],i['shares'],i['name'],i['alternative'])==(issue['date'],issue['shares'],issue['name'],issue['alternative']) for i in issuances):
                     issuances.append(issue)
-    if not issuances and any(r['status']=='COMPLETED' for r in retired):
-        issuances=[{'date':None,'shares':None,'name':None,'alternative':False,'evidence':'Financing issuance/date is unresolved in the latest financial filing.'}]
     linked={id(row):_linked_financing(row,issuances,clauses) for row in retired}
+    # Accession or mere proximity is never a financing/retirement join.
+    # Unlinked retirements retain separate event identities. Return those
+    # evidence-only records first so the public API continues to surface an
+    # unresolved retirement without implying it belongs to a nearby issuance.
+    standalone=[]
+    for row in retired:
+        if linked[id(row)] is None:
+            standalone.append({'date':row['transaction_date'],'shares':None,'name':None,'alternative':False,
+                               'evidence':'Retirement only; related financing is unresolved.', 'retirement_only':row})
+    issuances=standalone+issuances
     records=[]
     source=financial_record.get('filename','')
     if source and not source.startswith('https://'):source='https://www.sec.gov/Archives/'+source
     for issue in issuances:
-        relevant=[dict(r) for r in retired if linked[id(r)] is issue]
-        # Unlinked claims cannot supply this financing's purpose, but remain
-        # visible when the financing itself is unique and there is no join.
-        if not relevant and len(issuances)==1:relevant=[dict(r) for r in retired]
+        relevant=([dict(issue['retirement_only'])] if issue.get('retirement_only') else
+                  [dict(r) for r in retired if linked[id(r)] is issue])
         confirmed=[]
         for row in relevant:
             amount=row.get('claim_amount') if row.get('claim_amount') is not None else row.get('cash_paid')
@@ -176,6 +241,9 @@ def financial_capital_contexts(text, financial_record, events=()):
                     and any(linked[id(original)] is issue and original==row for original in retired)):
                 confirmed.append(row)
         context=_record_context(issue,relevant,confirmed)
+        if issue.get('retirement_only'):
+            context.update(financing_date=None,transaction_date=issue['date'],issuance_type='NONE',retirement_type='STANDALONE')
+        else:context['issuance_type']='COMMON_OR_PRE_FUNDED' if issue['alternative'] else 'COMMON'
         sources=[source] if source else []
         duplicate_accessions=[]
         # Source corroboration does not add either filing's share/claim totals.
@@ -204,7 +272,21 @@ def financial_capital_contexts(text, financial_record, events=()):
             dated_closure=(issue['name'],issue['date']) in closures
             if match and not conflict and (claim_match or dated_closure):
                 sources.extend(event.get('sources',[]));duplicate_accessions.append(event.get('accession'))
-        records.append({'accession':financial_record.get('accession'),'filed':financial_record.get('filed'),
+        context['financing_identity']=issue.get('financing_identity')
+        event_key={'date':issue['date'],'shares':issue['shares'],'financing':issue['name'],'alternative':issue['alternative'],
+                   'financing_identity':issue.get('financing_identity')}
+        if issue.get('retirement_only'):
+            event_key['retirement']={k:issue['retirement_only'].get(k) for k in ('identity','claim_amount','cash_paid','currency','retired_instrument_units')}
+            if not issue['retirement_only'].get('identity') or not issue['date']:
+                event_key['retirement']['unresolved_identity_evidence']=re.sub(r'\s+',' ',issue['retirement_only']['evidence']).strip().lower()
+        event_id=hashlib.sha256(json.dumps(event_key,sort_keys=True).encode()).hexdigest()[:20]
+        for row in context['retirements']:
+            key={k:row.get(k) for k in ('transaction_date','identity','instrument_type','claim_amount','cash_paid','currency','retired_instrument_units')}
+            if not row.get('identity') or not row.get('transaction_date'):
+                key['unresolved_identity_evidence']=re.sub(r'\s+',' ',row['evidence']).strip().lower()
+            row['retirement_event_id']=hashlib.sha256(json.dumps(key,sort_keys=True).encode()).hexdigest()[:20]
+        _classify_current_impact(context,financial_record,baseline,retired,clauses)
+        records.append({'capital_event_id':event_id,'accession':financial_record.get('accession'),'filed':financial_record.get('filed'),
                         'form':financial_record['form'],'report_date':financial_record.get('report_date'),
                         'sources':list(dict.fromkeys(sources)),'duplicate_event_accessions':duplicate_accessions,
                         'context':context})
