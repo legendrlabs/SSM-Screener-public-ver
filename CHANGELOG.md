@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.3 — 2026-10-03
+
+- `release.json`을 수동 관리하지 않고 release/build 과정에서 `pyproject.toml` 버전, release tag, source commit, managed-file SHA-256을 이용해 자동 생성.
+- updater가 moving `main/pyproject.toml`과 `main.zip`을 각각 읽는 방식을 제거하고, 최신 GitHub Release의 `release.json`을 먼저 검증한 뒤 manifest가 지정한 immutable `source_commit` archive만 사용.
+- archive 적용 전에 project version, source commit, managed-file hash를 검증하고 하나라도 맞지 않으면 설치 파일을 변경하지 않음.
+- bundle 업데이트는 검증된 managed files만 적용하며 기존 watchlist/overrides/output/`SEC_USER_AGENT` 보존 및 copy 실패 rollback 정책 유지.
+- Git checkout은 unpinned `git pull` 대신 clean working tree에서 manifest commit을 fetch 후 fast-forward-only 적용. pip 설치도 commit-pinned archive URL만 사용.
+- manifest version mismatch, archive/source_commit mismatch, old→new update, mutation rollback, user-file preservation 회귀테스트 및 현재 checkout의 manifest/project version CI 불변식 추가.
+- `v*` tag release workflow가 전체 테스트 후 `release.json`을 자동 생성·검증하고 GitHub Release asset으로 게시.
+- v1.1.2 사용자는 이번 한 번 기존 updater로 v1.1.3에 올라온 뒤, 이후 버전부터 immutable release manifest 경로를 사용.
+
 ## 1.1.2 — 2026-10-03
 
 - `ssm version`으로 현재 설치 버전과 최신 공개 버전을 확인할 수 있게 함.
