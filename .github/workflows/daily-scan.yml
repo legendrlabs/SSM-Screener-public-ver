@@ -1,16 +1,26 @@
-name: SSM Scan
+name: SSM Daily Scan
+
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".scan-trigger/**"
+  schedule:
+    # KST 20:30 and 07:30, Mon-Fri; GitHub scheduled starts may be delayed.
+    - cron: "30 11 * * 1-5"
+    - cron: "30 22 * * 1-5"
 
 concurrency:
-  group: ssm-distribution-scan-${{ github.ref }}
+  group: ssm-public-daily-scan-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   scan:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -19,16 +29,30 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - run: pip install .
+      - run: python -m pip install .
+      - name: Require SEC contact identity
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: |
+          if [ -z "$SEC_USER_AGENT" ]; then
+            echo "::error::Set repository Actions secret SEC_USER_AGENT to a real ASCII contact name and email before scanning."
+            exit 1
+          fi
       - name: Run screener
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           SSM_MARKET_PROVIDER: yfinance
           SSM_SEC_DISCOVERY_MODE: atom
         run: ssm scan --days 7 --out output
-      - name: Downloadable scan outputs
+      - name: Preserve complete scan snapshot
         uses: actions/upload-artifact@v4
         with:
           name: ssm-scan-${{ github.run_id }}
           path: output/
           retention-days: 7
+          if-no-files-found: error
+      - name: Publish validated output snapshot to main
+        run: |
+          git config user.name "ssm-bot"
+          git config user.email "actions@users.noreply.github.com"
+          python scripts/publish_outputs.py
