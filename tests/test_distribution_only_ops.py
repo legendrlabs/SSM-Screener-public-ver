@@ -50,3 +50,19 @@ def test_central_snapshot_publisher_is_not_packaged():
     assert (ROOT / "scripts/run_ssm.py").is_file()
     assert (ROOT / "ssm/providers/sec.py").is_file()
     assert (ROOT / ".github/workflows/release.yml").exists()
+
+
+def test_documented_release_version_matches_package_and_skill():
+    from ssm import __version__
+    from ssm.release_policy import project_version
+
+    version = project_version(ROOT)
+    assert __version__ == version
+    assert (ROOT / "README.md").read_text(encoding="utf-8").startswith(
+        f"# Special Situation Microcap Screener (SSM) v{version}"
+    )
+    updating = (ROOT / "UPDATING.md").read_text(encoding="utf-8")
+    skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    assert f"## 최신 배포 v{version}" in updating
+    assert f"v{version} and later" in skill
+    assert (ROOT / f"docs/releases/v{version}.md").is_file()

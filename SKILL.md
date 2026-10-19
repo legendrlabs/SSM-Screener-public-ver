@@ -5,7 +5,7 @@ description: Run the bundled SSM Screener for U.S. stock special situations and 
 
 # Special Situation Microcap Screener
 
-Canonical development/distribution repository: https://github.com/legendrlabs/SSM-Screener-public-ver . Use its published release and existing update workflow for v1.1.5 and later.
+Canonical development/distribution repository: https://github.com/legendrlabs/SSM-Screener-public-ver . Use its published release and existing update workflow for v1.1.6 and later.
 
 **Distribution-only policy:** This public repository does not run SEC screening jobs or publish live scan results. Every recipient runs their own installed engine and supplies their **own** `SEC_USER_AGENT` only in their execution environment. Never read the canonical repository's `output/` as a substitute for a fresh scan. Do not upload user SEC contact details, watchlists, overrides, or results to the public repository.
 

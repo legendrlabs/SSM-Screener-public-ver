@@ -1,5 +1,13 @@
 # SSM 업데이트
 
+## 최신 배포 v1.1.6 — 사용자별 SEC 설정
+
+v1.1.6은 배포 전용 정책을 정식 릴리스에 반영합니다. 중앙 SEC 자동 스캔과 원본 저장소의 결과 게시 워크플로는 제거되어, 설치자마다 **자신의 실행 환경에서** 연락 가능한 이름·이메일로 `SEC_USER_AGENT`를 설정합니다. 이 값은 SEC 로그인 비밀번호나 API 키가 아닌 요청자 연락처이며, 공개 코드나 릴리스에 포함하지 않습니다.
+
+업데이트 시 개인 `config/watchlist.csv`, `config/overrides.json`, `output/`, 기존 프로세스 환경변수 `SEC_USER_AGENT`는 보존합니다. 정상적인 설치본에서는 새 버전을 확인하고 `ssm update`로 반영하세요. `version`과 `--help`는 SEC 연락처 없이 확인할 수 있지만, `scan`과 `check`에는 각 사용자 자신의 연락처 및 실시간 네트워크 접근이 필요합니다.
+
+이 공개 저장소에는 중앙 스캔 결과가 없으므로 ChatGPT 스킬이 실제로 연결되지 않은 환경에서는 GitHub의 `output/`을 최신 보고서로 대체하지 않습니다.
+
 ## 통합 배포 v1.1.5
 
 업데이트 주소는 기존 `legendrlabs/SSM-Screener-public-ver` 그대로입니다. `SSM-Screener`로 설치 주소를 바꿀 필요가 없습니다. v1.1.2 이상은 `ssm version`으로 확인하고 `ssm update`로 통합 엔진을 받습니다. v1.1.1 이하는 아래 재설치 절차를 사용합니다. Git 설치본에 로컬 변경이 있으면 강제로 덮어쓰지 않고 중단합니다.
@@ -31,7 +39,7 @@ ssm update --dry-run
 직접 터미널에서 `ssm scan` 또는 `ssm check ...`를 실행할 때 새 버전이 확인되고 stdin/stderr가 실제 TTY이면 다음처럼 확인합니다.
 
 ```text
-SSM 1.1.5 available (current 1.1.4). Run: ssm update
+SSM 1.1.6 available (current 1.1.5). Run: ssm update
 Update now? [y/N]:
 ```
 
