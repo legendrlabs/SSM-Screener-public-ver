@@ -2,6 +2,7 @@ from __future__ import annotations
 import csv,json
 from pathlib import Path
 from .validation_audit import summarize_invariants
+from .event_rules import MERGER_KINDS
 
 def _m(x):
     if x is None:return ""
@@ -160,7 +161,7 @@ def write_outputs(candidates,cfg,out_dir):
         "",f"Gate totals: PASS {q['pass_count']} / WATCH {q['watch_count']} / DATA_HOLD {q['data_hold_count']}.",
         f"WATCH rows displayed: {len(watch)}; gate/bucket mismatches: {q['gate_bucket_mismatch_count']}.",""]
     material=[c for c in candidates if _active_common(c) and (
-        c.event_type in {'MERGER_CASH_CVR','MERGER_CASH_STOCK','MERGER_STOCK','REVERSE_MERGER_CVR','MERGER_REVERSE_MERGER','LIQUIDATION_DISTRIBUTION'} or
+        c.event_type in MERGER_KINDS | {'LIQUIDATION_DISTRIBUTION'} or
         (c.event_type == 'DEBT_RESTRUCTURING' and c.event_terms.get('materiality') == 'STRUCTURAL') or
         c.dilution.pending_stock_consideration_usd is not None or
         any(k in c.event_terms for k in ('capital_context','capital_context_history','new_warrant_shares','sale_price_amount','sale_price_estimate_usd','repurchase_total_usd')))]

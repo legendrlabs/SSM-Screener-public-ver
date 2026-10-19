@@ -34,3 +34,7 @@ This work uses a new isolated checkout and a feature branch. This document recor
 - Root release.json was an outdated static generated copy. It is no longer version-controlled; immutable assets are generated from the exact tested release commit.
 
 - Pre-review verification: 324 Python tests and 6 Node publication tests passed. Wheel build succeeded. A real v1.1.4 checkout archive was used as an installed skill bundle; its old updater accepted the new local manifest, validated all managed hashes, preserved watchlist/overrides/output/SEC_USER_AGENT, and loaded the new engine from a fresh interpreter. This fixture uses local transport for the not-yet-published release; it is not a live SEC scan.
+
+## Independent review and correction
+
+Independent whole-branch review found one Important reporting regression and no other Critical/Important/Minor findings: new merger labels were absent from the material-economics report whitelist. Four new regression cases failed before the fix. The report now imports the shared MERGER_KINDS taxonomy, retaining cash/stock/CVR economics and SEC sources even on DATA_HOLD. Final local verification: 328 Python tests and 6 Node tests passed; the real v1.1.4 old-bundle updater experiment passed again. Remote CI and actual publication remain to be checked.
