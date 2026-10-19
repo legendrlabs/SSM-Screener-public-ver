@@ -99,7 +99,7 @@ def test_future_closing_or_other_security_removal_cannot_terminate_common_merger
 
 def test_announced_completion_is_not_a_filing_or_financing_completion():
     kind, proof, _ = classify_event('The Company issued a press release announcing the completion of its business combination.')
-    assert kind == 'MERGER_REVERSE_MERGER' and proof == 3
+    assert kind == 'MERGER_UNVERIFIED' and proof == 3
     _, proof, _ = classify_event('The Company entered into a merger agreement. The Company announced completion of the registration statement.')
     assert proof < 3
 

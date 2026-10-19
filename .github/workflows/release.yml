@@ -2,8 +2,9 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    tags: ["v*"]
+    paths: [pyproject.toml]
   workflow_dispatch:
     inputs:
       tag:
@@ -11,124 +12,69 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: ssm-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
-      - name: Resolve release ref
-        id: ref
-        shell: bash
-        run: |
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ steps.ref.outputs.ref }}
-
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-
+        run: python -m pip install -e ".[dev]"
       - name: Run full test suite
-        run: pytest -q
-
-      - name: Resolve immutable release identity
+        run: |
+          python -m pytest -q
+          node --test tests/test_publish_release.cjs
+      - name: Resolve tested release identity
         id: identity
-        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: python scripts/release_identity.py
+      - name: Generate immutable release manifest
+        if: steps.identity.outputs.skip_publish != 'true'
+        env:
+          RELEASE_TAG: ${{ steps.identity.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.identity.outputs.source_commit }}
         run: |
-          TAG="${{ steps.ref.outputs.ref }}"
-          SOURCE_COMMIT="$(git rev-parse 'HEAD^{commit}')"
-          TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
-          if [ "$SOURCE_COMMIT" != "$TAG_COMMIT" ]; then
-            echo "checked-out commit does not match release tag" >&2
-            exit 1
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "source_commit=$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
-
-      - name: Generate release manifest
-        run: |
-          python scripts/build_release_manifest.py \
-            --tag "${{ steps.identity.outputs.tag }}" \
-            --source-commit "${{ steps.identity.outputs.source_commit }}" \
-            --out release.json
-
+          python scripts/build_release_manifest.py --tag "$RELEASE_TAG" --source-commit "$SOURCE_COMMIT" --out release.json
       - name: Verify generated release manifest
+        if: steps.identity.outputs.skip_publish != 'true'
         env:
           RELEASE_TAG: ${{ steps.identity.outputs.tag }}
           SOURCE_COMMIT: ${{ steps.identity.outputs.source_commit }}
         run: |
           python - <<'PY'
-          import json
-          import os
+          import json, os
           from pathlib import Path
-          from ssm.release_policy import build_manifest, project_version
-
-          root = Path('.').resolve()
-          manifest = json.loads(Path('release.json').read_text(encoding='utf-8'))
-          expected = build_manifest(root, os.environ['RELEASE_TAG'], os.environ['SOURCE_COMMIT'])
-          assert manifest == expected
-          assert manifest['version'] == project_version(root)
-          assert manifest['source_commit'] == os.environ['SOURCE_COMMIT']
+          from ssm.release_policy import build_manifest
+          root=Path('.').resolve()
+          actual=json.loads((root/'release.json').read_text())
+          assert actual==build_manifest(root,os.environ['RELEASE_TAG'],os.environ['SOURCE_COMMIT'])
           PY
-
-      - name: Publish release.json asset
+      - name: Publish complete release
+        if: steps.identity.outputs.skip_publish != 'true'
         uses: actions/github-script@v8
         env:
           RELEASE_TAG: ${{ steps.identity.outputs.tag }}
+          SOURCE_COMMIT: ${{ steps.identity.outputs.source_commit }}
         with:
           github-token: ${{ github.token }}
           script: |
-            const fs = require('fs');
-            const { owner, repo } = context.repo;
-            const tag = process.env.RELEASE_TAG;
-            let release;
-            try {
-              release = (await github.rest.repos.getReleaseByTag({ owner, repo, tag })).data;
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              release = (await github.rest.repos.createRelease({
-                owner,
-                repo,
-                tag_name: tag,
-                name: `SSM ${tag}`,
-                generate_release_notes: true,
-              })).data;
-            }
-
-            const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
-              owner,
-              repo,
-              release_id: release.id,
-              per_page: 100,
-            });
-            for (const asset of assets) {
-              if (asset.name === 'release.json') {
-                await github.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: asset.id });
-              }
-            }
-
-            const data = fs.readFileSync('release.json');
-            await github.rest.repos.uploadReleaseAsset({
-              owner,
-              repo,
-              release_id: release.id,
-              name: 'release.json',
-              headers: {
-                'content-type': 'application/json',
-                'content-length': data.length,
-              },
-              data,
-            });
+            const publishRelease=require(process.env.GITHUB_WORKSPACE+'/scripts/publish_release.cjs');
+            const url=await publishRelease({github,context,tag:process.env.RELEASE_TAG,
+              sourceCommit:process.env.SOURCE_COMMIT,manifestPath:'release.json'});
+            core.info(`Published ${url}`);

@@ -5,6 +5,8 @@ description: Run the bundled SSM Screener for U.S. stock special situations and 
 
 # Special Situation Microcap Screener
 
+Canonical development/distribution repository: https://github.com/legendrlabs/SSM-Screener-public-ver . Use its published release and existing update workflow for v1.1.5 and later.
+
 ## Purpose
 
 Find U.S.-listed microcap special situations where market price may not yet reflect a verified structural change. This skill is a **screening and research-triage workflow**, not a trade recommendation engine.

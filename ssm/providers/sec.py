@@ -341,6 +341,28 @@ class SecClient:
             ).json()
         return self._facts_cache[key]
 
+def latest_fact_record(companyfacts, tag):
+    """Latest observation by effective date, not merely most recently filed.
+
+    Amended SEC submissions can restate older DEI facts. A late filing of an
+    older share count is not a current common-share baseline. Preserve the
+    observation's 'end' date for downstream capital-event chronology.
+    """
+    node = (
+        companyfacts.get("facts", {}).get("dei", {}).get(tag)
+        or companyfacts.get("facts", {}).get("us-gaap", {}).get(tag)
+    )
+    if not node:
+        return None
+    rows = [row for unit in node.get("units", {}).values() for row in unit
+            if row.get("val") is not None and row.get("filed")]
+    if not rows:
+        return None
+    dated = [row for row in rows if row.get("end")]
+    ranked = dated or rows
+    return max(ranked, key=lambda row: (row.get("end", ""), row.get("filed", "")))
+
+
 def latest_fact_value(companyfacts, tag):
     node = (
         companyfacts.get("facts", {}).get("dei", {}).get(tag)

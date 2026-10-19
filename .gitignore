@@ -24,3 +24,6 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# Built by the release workflow; published asset is authoritative
+/release.json

@@ -12,7 +12,7 @@ def test_introductory_closing_cannot_be_discarded_before_other_item_agreements()
             'Item 1.01 The Company entered into a credit agreement. '
             'Item 2.01 The Introductory Note is incorporated by reference. Item 9.01 Financial Statements.')
     kind, proof, _ = classify_event(text)
-    assert kind == 'MERGER_REVERSE_MERGER'
+    assert kind == 'MERGER_UNVERIFIED'
     assert proof == 3
     assert event_status(text, kind, proof) == 'COMPLETED'
 
@@ -21,7 +21,7 @@ def test_confirmed_merger_closing_is_not_overridden_by_other_preliminary_news():
     text = ('The parties completed their previously announced merger, effective October 1, 2026. '
             'The Company reported preliminary quarterly results and signed a non-binding customer MOU.')
     kind, proof, _ = classify_event(text)
-    assert kind == 'MERGER_REVERSE_MERGER' and proof == 3
+    assert kind == 'MERGER_UNVERIFIED' and proof == 3
 
 
 def test_cash_first_merger_terms_have_both_common_holder_payout_components():

@@ -2,13 +2,14 @@
 from datetime import date, datetime, timedelta
 import re
 from .recapitalization import capital_context
-from .transactions import reduce_transactions
+from .transactions import reduce_transactions, normalized_kind, closing_evidence, sentences
 
-from .event_rules import classify_event, operative_text, liquidation_evidence, adopted_rights_plan, resale_registration, closed_debt_equity_exchange, merger_share_consideration, merger_parent_name, completed_merger, MERGER_KINDS
+from .event_rules import classify_event, operative_text, liquidation_evidence, adopted_rights_plan, resale_registration, closed_debt_equity_exchange, merger_share_consideration, merger_cash_consideration, merger_parent_name, completed_merger, MERGER_KINDS
 
 PRIORITY = {'TERMINAL_MERGER': 110, 'MERGER_TERMINATED': 105,
             'LIQUIDATION_DISTRIBUTION': 100, 'MERGER_CASH_CVR': 90, 'REVERSE_MERGER_CVR': 90, 'MERGER_CVR_UNVERIFIED': 85,
-            'MERGER_REVERSE_MERGER': 85, 'MERGER_CASH_STOCK': 85, 'MERGER_STOCK': 85, 'ASSET_SALE_ACQUISITION': 70,
+            'MERGER_REVERSE_MERGER': 85, 'MERGER_UNVERIFIED':85, 'MERGER_CASH':85, 'MERGER_STOCK_CVR':85,
+            'REVERSE_MERGER':85, 'MERGER_CASH_STOCK': 85, 'MERGER_STOCK': 85, 'ASSET_SALE_ACQUISITION': 70,
             'STRATEGIC_INVESTMENT_PIPE': 65, 'DEBT_RESTRUCTURING': 60,
             'LARGE_CONTRACT': 50, 'BUSINESS_PIVOT': 45,
             'LISTING_CAPITAL_STRUCTURE': 25}
@@ -45,12 +46,15 @@ def event_terms(text, kind, *, cleaned=False):
     t = text if cleaned else operative_text(text)
     terms = {}
     if kind in MERGER_KINDS | {'TERMINAL_MERGER'}:
-        cash = re.search(r'\$\s*(\d+(?:\.\d+)?)\s+per share.{0,45}?in cash', t, re.I)
-        if not cash:
-            cash = re.search(r'converted into.{0,100}?\$\s*(\d+(?:\.\d+)?)\s+(?:cash|per share)', t, re.I)
+        cash = merger_cash_consideration(t)
+        specialized=list(re.finditer(r'cash consideration per common share (?:was |is )?(?:increased|decreased|changed|revised) to\s*\$\s*(\d+(?:\.\d+)?)',t,re.I))
+        revised=list(re.finditer(r'(?:amended|revised|changed|increased|decreased).{0,60}(?:merger consideration|cash consideration).{0,20}?to\s*\$\s*(\d+(?:\.\d+)?)\s+per (?:common )?share\s+in cash',t,re.I))
+        cash_updates=sorted(specialized+revised,key=lambda m:m.start())
+        if cash_updates:cash=cash_updates[-1]
         if cash and kind != 'REVERSE_MERGER_CVR':
             terms['cash_per_share_usd'] = float(cash.group(1))
-        if kind in {'MERGER_CASH_CVR', 'REVERSE_MERGER_CVR', 'MERGER_CVR_UNVERIFIED'}:
+            terms['cash_per_share_status'] = 'FIXED'
+        if re.search(r'contingent value right|\bCVR\b',t,re.I):
             terms['cvr_conditional'] = True
             if re.search(r'non[- ]tradable|non[- ]transferable', t, re.I):
                 terms['cvr_transferable'] = False
@@ -70,10 +74,40 @@ def event_terms(text, kind, *, cleaned=False):
                 terms['cvr_basis'] = 'Legacy asset monetization net proceeds'
             if re.search(r'may declare', t, re.I):
                 terms['cvr_distribution_status'] = 'CONTEMPLATED'
-        if kind in {'MERGER_CASH_STOCK', 'MERGER_STOCK'}:
-            terms.update(merger_share_consideration(t))
-            if kind == 'MERGER_STOCK':
-                terms.pop('cash_per_share_usd', None)
+        share_terms=merger_share_consideration(t)
+        if share_terms:
+            if cash_updates:share_terms.pop('cash_per_share_usd',None)
+            terms.update(share_terms)
+        verified=[]
+        if cash_updates:verified.append('cash_per_share_usd')
+        updated_stock=list(re.finditer(r'(?:amended|revised|changed|increased|decreased).{0,50}stock exchange ratio\s+to\s*(\d+(?:\.\d+)?)\s+shares\b',t,re.I))
+        if updated_stock:
+            terms['stock_exchange_ratio']=float(updated_stock[-1][1]);verified.append('stock_exchange_ratio')
+        for clause in sentences(t):
+            if re.search(r'\b(?:amended|revised)\b',clause,re.I) and re.search(r'\beach share\b',clause,re.I):
+                amended_payout=merger_share_consideration(clause)
+                for key in ('cash_per_share_usd','stock_exchange_ratio'):
+                    if key in amended_payout:terms[key]=amended_payout[key];verified.append(key)
+        if verified:terms['_amendment_verified_fields']=sorted(set(verified))
+        if 'cash_per_share_usd' in terms:
+            terms['cash_per_share_status']='CONDITIONAL' if terms.get('cash_adjustment_direction') else 'FIXED'
+        for key,pattern in [
+            ('closing_conditions',r'(?:subject to|conditioned upon).{0,350}?(?:approval|conditions|consents)[^.]*'),
+            ('working_capital_adjustment',r'(?:net working capital|net debt).{0,130}adjust\w*|adjust\w*.{0,130}(?:net working capital|net debt)'),
+            ('collar_or_election_mechanics',r'(?:exchange ratio collar|collar|election (?:procedures|mechanics)|cash or stock election)[^.]{0,350}'),
+            ('cvr_terms',r'(?:contingent value right|\bCVR\b)[^.]{0,500}'),
+            ('earnout_terms',r'earn[- ]?out[^.]{0,350}'),
+        ]:
+            evidence=re.search(pattern,t,re.I)
+            if evidence:terms[key]=evidence[0]
+        for key,anchor in [('total_transaction_value',r'(?:total|aggregate) (?:transaction|merger|enterprise|equity) value (?:of|is)'),
+                           ('termination_fee',r'termination fee (?:of|equal to)'),
+                           ('special_dividend',r'special (?:cash )?dividend (?:of|equal to)'),
+                           ('debt_assumed_or_repaid',r'(?:assume|repay)(?:d|s)? (?:approximately )?')]:
+            value=re.search(anchor+r'\s*(US\$|C\$|\$|€|£)\s*([\d,.]+)\s*(million|billion)?',t,re.I)
+            if value:
+                terms[key]={'amount':float(value[2].replace(',',''))*{'million':1e6,'billion':1e9,None:1}[(value[3] or '').lower() or None],
+                            'currency':CURRENCIES.get(value[1].upper(),'UNVERIFIED'),'evidence':value[0]}
         if completed_merger(t):
             def quantity(pattern):
                 m = re.search(pattern, t, re.I)
@@ -234,19 +268,31 @@ def _read_event_filing(sec, cik, filing):
     sources = ['https://www.sec.gov/Archives/' + filing['filename']]
     text = primary
     narratives = [operative_text(primary)]
-    if filing.get('form') == '8-K' and re.search(r'Exhibit\s+99\.|99\.\d', primary, re.I):
+    lifecycle_narratives=list(narratives)
+    term_sources=list(sources)
+    if filing.get('form') in {'8-K','8-K/A'} and re.search(r'Exhibit\s+(?:99|2|10)\.|99\.\d', primary, re.I):
         for doc in sec.filing_documents(cik, filing.get('accession'), filing.get('index_url')):
-            if doc['type'].startswith('EX-99'):
+            if (doc['type'].startswith(('EX-99','EX-2'))
+                    or (doc['type'].startswith('EX-10') and re.search(r'merger|purchase|transaction',doc.get('description',''),re.I))):
                 exhibit = sec.submission_text(doc['url'])
                 text += '\n' + exhibit
                 narratives.append(operative_text(exhibit))
                 sources.append(doc['url'])
+                term_sources.append(doc['url'])
+                if doc['type'].startswith('EX-99'):lifecycle_narratives.append(operative_text(exhibit))
     narrative = '\n'.join(narratives)
-    label, proof, summary = classify_event(narrative, cleaned=True)
+    lifecycle='\n'.join(lifecycle_narratives)
+    label, proof, summary = classify_event(lifecycle, cleaned=True)
+    terms=event_terms(narrative,label,cleaned=True)
+    label=normalized_kind(label,terms,narrative)
+    lifecycle='\n'.join(lifecycle_narratives)
+    status=event_status(lifecycle,label,proof)
+    if label in MERGER_KINDS and not closing_evidence(lifecycle):
+        proof=min(proof,2);status=event_status(lifecycle,label,proof)
     return {**filing, 'event_type': label, 'event_proof': proof,
-            'event_status': event_status(narrative, label, proof), 'summary': summary,
-            'terms': event_terms(narrative, label, cleaned=True), 'sources': sources,
-            'text': primary, 'combined_text': text, 'narrative': narrative}
+            'event_status': status, 'summary': summary,
+            'terms': terms, 'sources': sources,'term_sources':term_sources,
+            'text': primary, 'combined_text': text, 'narrative': narrative,'lifecycle_narrative':lifecycle}
 
 
 def same_merger_counterparty(current, prior):
@@ -315,33 +361,39 @@ def review_material_events(sec, cik, discovered, cfg):
                         break
                 except Exception as exc:
                     warnings.append(f'Completed-merger listing review failed for {acc}: {exc}')
-        current = operative_text(selected['combined_text'])
-        missing_payout = not any(k in selected['terms'] for k in ('cash_per_share_usd', 'stock_exchange_ratio', 'legacy_holder_ownership_pct'))
-        if (selected['event_type'] in MERGER_KINDS and missing_payout
-                and re.search(r'regulatory|HSR|Hart-Scott|waiting period', current, re.I)
-                and re.search(r'Merger Agreement', current, re.I)
-                and not re.search(r'(?:amended|amendment to|revised|new).{0,45}(?:merger agreement|agreement and plan of merger|consideration)|(?:merger agreement|consideration).{0,25}(?:amended|revised)', current, re.I)):
+        # Economics are independent of the current filing's status vocabulary.
+        # Search bounded older agreement/proxy sources whenever a material deal
+        # is active; the identity reducer rejects unrelated transactions.
+        if selected['event_type'] in MERGER_KINDS | {'TERMINAL_MERGER','ASSET_SALE_ACQUISITION'}:
             oldest = (date.today() - timedelta(days=cfg.get('financial_filing_max_age_days', 210))).isoformat()
-            candidates = list(reviewed)
+            seen = {x.get('accession') for x in reviewed}
+            extra = []
+            forms = {'8-K','8-K/A','DEFM14A','DEFA14A','DEF 14A','S-4','S-4/A','F-4','F-4/A','424B3','10-Q','10-K'}
             for i, form in enumerate(recent.get('form', [])):
-                if (form == '8-K' and oldest <= recent['filingDate'][i] < cutoff
-                        and '1.01' in (recent.get('items', [''] * len(recent['form']))[i] or '')):
-                    acc = recent['accessionNumber'][i]
-                    filing = {'cik': cik, 'form': form, 'filed': recent['filingDate'][i], 'accession': acc,
-                              'filename': f"edgar/data/{int(cik)}/{acc.replace('-', '')}/{recent['primaryDocument'][i]}"}
-                    try:
-                        candidates.append(_read_event_filing(sec, cik, filing))
-                    except Exception as exc:
-                        warnings.append(f'Merger term source review failed for {acc}: {exc}')
-            for prior in sorted(candidates, key=lambda x: x.get('filed', ''), reverse=True):
-                if (prior['event_type'] in MERGER_KINDS and prior['event_proof'] >= 2
-                        and same_merger_counterparty(current, prior)
-                        and any(k in prior['terms'] for k in ('cash_per_share_usd', 'stock_exchange_ratio'))):
-                    selected['terms'] = {k: v for k, v in prior['terms'].items() if k != 'transaction_date'} | selected['terms']
-                    selected['terms'].update(merger_terms_source_accession=prior['accession'], merger_terms_source_date=prior['filed'])
-                    selected['sources'] = list(dict.fromkeys(selected['sources'] + prior['sources']))
-                    selected['event_type'] = prior['event_type']
-                    selected['summary'] = prior['summary']
-                    selected['selection_reason'] += ' Consideration retained from the original same-counterparty agreement; latest regulatory update retained.'
-                    break
+                filed = recent['filingDate'][i]
+                if form not in forms or filed < oldest:continue
+                acc = recent['accessionNumber'][i]
+                if acc in seen:continue
+                items = (recent.get('items', [''] * len(recent['form']))[i] or '')
+                if form.startswith('8-K') and not set(re.split(r'[,;]',items)).intersection({'1.01','2.01','8.01','7.01'}):continue
+                # Ordinary old 8-Ks are outside the catalyst window. Definitive
+                # sources and the latest financial note may supplement a live deal.
+                filing = {'cik':cik,'form':form,'filed':filed,'accession':acc,
+                          'filename':f"edgar/data/{int(cik)}/{acc.replace('-', '')}/{recent['primaryDocument'][i]}"}
+                extra.append(filing)
+            for filing in extra:
+                try:
+                    candidate=_read_event_filing(sec,cik,filing)
+                    from .transactions import same_transaction
+                    if any(same_transaction(prior,candidate) for prior in reviewed):
+                        reviewed.append(candidate)
+                except Exception as exc:
+                    warnings.append(f"Transaction source review failed for {filing['accession']}: {exc}")
+            terminal=selected if selected['event_status']=='TERMINAL' else None
+            selected=select_event(reviewed)
+            if terminal:
+                selected['event_type'],selected['event_status']='TERMINAL_MERGER','TERMINAL'
+                selected['terms'].update({k:v for k,v in terminal['terms'].items() if k=='listing_termination_source_accession'})
+                selected['sources']=list(dict.fromkeys(selected['sources']+terminal['sources']))
+            selected['selection_reason']='Transaction identity links explicit lifecycle evidence and independently sourced valid economics.'
     return selected, reviewed, warnings
