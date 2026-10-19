@@ -21,7 +21,7 @@ ChatGPT 스킬 번들의 자동 호출과 별개로, 퍼블릭 GitHub 저장소�
 **평일 20:30 KST 및 익일 07:30 KST** 정기 스캔을 실행하고 성공한
 결과 스냅샷을 `output/`에 게시하도록 운영합니다.
 
-- 스캔: [GitHub Actions — SSM Daily Scan](../../actions/workflows/daily-scan.yml)
+- 스캔: [GitHub Actions — SSM Daily Scan](https://github.com/legendrlabs/SSM-Screener-public-ver/actions/workflows/daily-scan.yml)
 - 결과: [output/quality.json](output/quality.json), [output/latest.md](output/latest.md) 및 CSV 파일
 - 필수 준비: 퍼블릭 저장소의 Actions Secret `SEC_USER_AGENT` 설정,
   `GITHUB_TOKEN`의 `contents: write` 권한 및 브랜치 쓰기 정책 확인
