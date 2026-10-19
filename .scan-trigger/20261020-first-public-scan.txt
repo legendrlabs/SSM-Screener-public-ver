@@ -1,1 +1,0 @@
-Trigger one public SSM scan after restoring scheduled publication. No credentials or user data. Date: 2026-10-20 KST.

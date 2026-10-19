@@ -15,21 +15,18 @@
 > **숫자가 불완전하면 PASS가 아니라 DATA_HOLD다.**
 
 
-## 퍼블릭 정기 스캔 및 채팅 보고
+## 배포 전용 저장소 · 사용자별 SEC 설정
 
-ChatGPT 스킬 번들의 자동 호출과 별개로, 퍼블릭 GitHub 저장소에서
-**평일 20:30 KST 및 익일 07:30 KST** 정기 스캔을 실행하고 성공한
-결과 스냅샷을 `output/`에 게시하도록 운영합니다.
+이 저장소는 **SSM 스킬/Python 엔진의 소스코드·테스트·릴리스 배포 전용**입니다.
 
-- 스캔: [GitHub Actions — SSM Daily Scan](https://github.com/legendrlabs/SSM-Screener-public-ver/actions/workflows/daily-scan.yml)
-- 결과: [output/quality.json](output/quality.json), [output/latest.md](output/latest.md) 및 CSV 파일
-- 필수 준비: 퍼블릭 저장소의 Actions Secret `SEC_USER_AGENT` 설정,
-  `GITHUB_TOKEN`의 `contents: write` 권한 및 브랜치 쓰기 정책 확인
-- 초기/최신 결과가 존재하지 않을 때는 성공한 스캔으로 간주하지 않고 `DATA_HOLD`합니다.
-- 스캔은 자동화돼도 종목의 `PASS`나 `SAFE_TO_ACT`는 엔진 결과를 그대로 따릅니다.
+- 저장소 운영자는 SEC 공시를 주기적으로 스캔하거나 중앙 `output/` 보고서를 게시하지 않습니다.
+- 배포받은 사용자는 **자신의 설치 환경에서** `SEC_USER_AGENT`를 설정한 후 스캔합니다.
+- `SEC_USER_AGENT`는 SEC 로그인 비밀번호나 API 키가 아닌 **자동 요청자의 연락처(User-Agent)** 입니다. 각 사용자의 실제 영문 이름 또는 단체명과 연락 가능한 이메일을 사용합니다.
+- 이름·이메일, 관심종목, 수동 희석 보정, 실전 결과는 이 퍼블릭 저장소에 커밋하거나 배포 패키지에 포함하지 않습니다.
+- GitHub Releases 및 코드 검증용 Actions는 유지하지만 **중앙 SEC 스캔 워크플로는 제공하지 않습니다.**
+- 이 저장소의 `output/` 디렉터리는 빈 자리표시자일 뿐이며, 여기에서 `quality.json`/매매 후보를 조회할 수 없습니다.
 
-자세한 운영·검증 및 개인 설정 보호 기준은 [정기 스캔 운영 가이드](docs/operations/public-scan.md)를 참고하세요.
-이 경로는 **GitHub 보고용**이며 ChatGPT 개인 스킬의 설치 상태를 자동으로 해결하지는 않습니다.
+[사용자별 SEC 설정 및 로컬 실행 안내](docs/operations/user-sec-setup.md)를 참고하세요.
 
 ## ChatGPT / Codex에서 설치해서 사용하기
 
@@ -177,7 +174,7 @@ SEC filing의 warrant / convert / preferred 구조는 표준 XBRL 태그가 없�
 
 미해결 희석 항목은 다른 공시나 첨부자료에 희석 언급이 없다는 이유로 해소되지 않습니다. 신뢰도가 low이면 DATA_HOLD를 유지하고 완전희석 시총·FD 배수·완전희석 총주식수는 빈칸으로 출력합니다. 추출한 개별 숫자는 검토용이며, 현재 잔량과 과거 발행·행사 수량 및 역분할 조정 여부를 대조하기 전에는 확정 cap table이 아닙니다.
 
-결과 파일은 하나의 스냅샷으로 보관·게시합니다. `quality.json`의 `source_commit`, `workflow_run_id`, `generated_at`으로 실행 출처를 확인할 수 있으며, 새 코드 또는 더 나중 실행의 결과가 존재하면 오래된 실행은 게시하지 않습니다.
+결과 파일은 **실행한 사용자 자신의 작업 환경에만** 저장합니다. 공개 배포 저장소는 사용자별 `quality.json`·CSV·`latest.md`를 수집하거나 게시하지 않습니다. 결과의 실행 날짜·데이터 출처는 생성된 보고서의 메타데이터로 확인합니다.
 
 ## v1 배포 범위
 
