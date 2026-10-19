@@ -8,7 +8,7 @@ from .capital_evidence import capital_clauses
 Q = r'\d[\d,]*(?:\.\d+)?(?:\s+(?:million|thousand))?'
 MONEY = r'(?<![A-Za-z])(?P<currency>[A-Z]{0,3}\$|€|£)\s*(?P<amount>\d[\d,]*(?:\.\d+)?)\s*(?P<unit>million|thousand)?'
 FX = {'$':'USD','US$':'USD','C$':'CAD','CAD$':'CAD','A$':'AUD','HK$':'HKD','€':'EUR','£':'GBP'}
-FUTURE = r'\bwill\b|\bwould\b|\bmay\b|\bintend\w*\b|\bexpect\w*\b|\bplanned\b|\bproposed\b|\bsubject to\b|\bif\b|\b(?:has|have|had|did) not\b|\bnot yet\b|\bagreed to\b'
+FUTURE = r'\bwill\b|\bwould\b|\bmay\b(?!\s+\d{1,2},)|\bintend\w*\b|\bexpect\w*\b|\bplanned\b|\bproposed\b|\bsubject to\b|\bif\b|\b(?:has|have|had|did) not\b|\bnot yet\b|\bagreed to\b'
 ACTION = r'\bredeem\w*\b|\brepay\w*\b|\brepaid\b|\bpaid off\b|\bextinguish\w*\b|\bexchang\w*\b|\bconvert\w*\b'
 
 
@@ -37,23 +37,25 @@ def _action_date(clause):
 def _retirement_extent_scope(clause):
     action=re.search(ACTION,clause,re.I)
     start=action.start() if action else 0
+    # Preserve a passive whole-instrument subject before the retirement verb.
     whole_prefix=re.search(r'\ball\s+(?:of\s+the\s+)?(?:outstanding|then-outstanding)[^.]{0,140}$',clause[:start],re.I)
     if whole_prefix:start=whole_prefix.start()
     scope=clause[start:]
     return re.split(r'\b(?:using|funded by|with(?=[^.]*\bproceeds\b)|from(?=[^.]*\bproceeds\b))\b',scope,maxsplit=1,flags=re.I)[0]
 
-
 def _retirement_rows(clause, issuer):
     # Each verb keeps its own object. "All debt" cannot erase a partially
     # redeemed preferred class in the preceding coordinated action.
     parts = re.split(r'\s+and\s+(?=(?:'+issuer+r'\s+)?(?:has\s+|had\s+|will\s+)?(?:'+ACTION+r'))', clause, flags=re.I)
-    direct = issuer + r'\s+(?:(?:has|have|had|will|would|may)\s+|(?:intends|expects|plans)\s+to\s+)?(?:(?:used|use)\s+(?:the\s+)?(?:net\s+)?proceeds\s+to\s+)?(?:'+ACTION+r')'
+    direct = issuer + r'\s+(?:(?:has|have|had|will|would|may)\s+|(?:intends|expects|plans)\s+to\s+)?(?:(?:used|use)\s+(?:the\s+)?(?:net\s+)?proceeds(?:\s+from\s+(?:the\s+)?(?:Private Placement|PIPE|rights offering|public offering))?\s+to\s+)?(?:'+ACTION+r')'
     inherit = bool(re.search(direct, parts[0], re.I))
     for index, part in enumerate(parts):
         if index and inherit and re.match(ACTION, part, re.I):
             part = 'The Company ' + part
+        # Optional indenture rights are not an announced redemption decision.
+        if re.search(r'\bmay\s+(?:redeem|repay|convert|exchange)|\bat its option\b|\bright to redeem\b',part,re.I) and not re.search(r'\bwill\s+(?:redeem|repay)|\b(?:intends|plans)\s+to\s+(?:redeem|repay)|\b(?:issued|delivered)\s+(?:a\s+)?notice of redemption\b',part,re.I):continue
         identity = _identity(part)
-        liability = re.search(r'preferred (?:stock|shares)|\bdebt\b|\bnotes\b|\bloan\b|\bdebentures\b', part, re.I)
+        liability = re.search(r'preferred (?:stock|shares)|\bdebt\b|\bnotes\b|\bloan\b|\bdebentures\b|\bRBL\b|\bcredit facility\b', part, re.I)
         passive = re.search(r'all (?:of the )?(?:outstanding|then-outstanding).{0,100}?(?:was|were|has been|have been)\s+(?:extinguished|redeemed|converted|exchanged)', part, re.I)
         if not liability or not (re.search(direct, part, re.I) or passive):
             continue
@@ -73,7 +75,7 @@ def _retirement_rows(clause, issuer):
             whole = False
         yield {'instrument_type':typ, 'identity':identity, 'status':status,
                'claim_amount':amount, 'currency':currency, 'whole_instrument':whole,
-               'funding_link_confirmed':bool(re.search(r'(?:used|use)\s+(?:the\s+)?(?:net\s+)?proceeds\s+to\s+(?:'+ACTION+r')',part,re.I)),
+               'funding_link_confirmed':bool(re.search(r'(?:used|use)\s+(?:the\s+)?(?:net\s+)?proceeds(?:\s+from\s+(?:the\s+)?(?:Private Placement|PIPE|rights offering|public offering))?\s+to\s+(?:'+ACTION+r')',part,re.I)),
                'transaction_date':_action_date(part), 'evidence':part[:500]}
 
 

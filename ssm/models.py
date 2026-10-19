@@ -49,6 +49,7 @@ class Candidate:
     event_terms: Dict = field(default_factory=dict)
     event_sources: List[str] = field(default_factory=list)
     event_history: List[Dict] = field(default_factory=list)
+    validation_audit: Dict = field(default_factory=dict)
     event_review_complete: bool = True
     event_selection_reason: str = ''
     most_recent_filing_date: Optional[str] = None
@@ -64,6 +65,7 @@ class Candidate:
     financial_review_complete: bool = False
     financial_note_hits: List[str] = field(default_factory=list)
     common_shares_source: str = ""
+    common_shares_as_of: Optional[str] = None
     share_count_conflict: bool = False
     exhibit_review_complete: bool = False
     exhibit_documents_reviewed: List[str] = field(default_factory=list)
@@ -89,6 +91,7 @@ class Candidate:
 
     def basic_market_cap(self):
         if self.event_terms.get('capital_counts_require_reconciliation'): return None
+        if self.event_terms.get('common_share_baseline_stale'): return None
         if self.event_terms.get('post_transaction_ticker', self.ticker) != self.ticker: return None
         if self.security_type != 'COMMON_EQUITY' or self.event_status in {'TERMINAL', 'CANCELLED'} or self.gate_status == 'EXCLUDED': return None
         return self.price * self.dilution.common_shares if self.price is not None and self.dilution.common_shares > 0 else None

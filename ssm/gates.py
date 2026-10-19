@@ -11,6 +11,7 @@ def evaluate_gates(c: Candidate, cfg):
     reasons=[]
     if c.security_type not in {'COMMON_EQUITY', 'UNKNOWN'}: return 'EXCLUDED', [f'{c.security_type} security is outside the common-equity universe.']
     if c.event_status in {'TERMINAL', 'CANCELLED'}: return 'EXCLUDED', [f'Event status {c.event_status}; excluded from active research candidates.']
+    if c.event_terms.get('economics_reconciliation_required'):return 'DATA_HOLD',['Latest transaction consideration amendment is unresolved.']
     if c.event_terms.get('post_transaction_ticker', c.ticker) != c.ticker: return 'DATA_HOLD', [f"Listing changed to {c.event_terms['post_transaction_ticker']}; ticker, price and share units require reconciliation."]
     if c.event_terms.get('capital_counts_require_reconciliation'): return 'DATA_HOLD', ['Completed-merger capital counts require reconciliation with current common shares and outstanding instruments.']
     if c.security_type == 'UNKNOWN': return 'DATA_HOLD', ['Listed security type is not verified from SEC registered classes.']
@@ -43,6 +44,11 @@ def evaluate_gates(c: Candidate, cfg):
     if fin_age is None: return "DATA_HOLD", ["Latest 10-Q/10-K date unavailable."]
     if fin_age > cfg["financial_filing_max_age_days"]: return "DATA_HOLD", ["Financial filing is stale."]
     if not c.financial_review_complete: return "DATA_HOLD", ["Latest 10-Q/10-K second-pass review is incomplete."]
+    # A generic/non-special-situation filing can only be rejected after the
+    # mandatory cap-table and financial evidence checks have passed.
+    # Missing data is DATA_HOLD, never a silently substituted REJECT.
+    if c.event_type in {'OTHER', 'CORPORATE_ACTION', 'MATERIAL_DEFINITIVE_AGREEMENT'} and c.event_proof <= 1:
+        return 'REJECT', ['No source-verified structural special-situation catalyst.']
     if c.adv20_usd is None: reasons.append("ADV20 unavailable.")
     elif c.adv20_usd < cfg["adv20_watch_min"]: return "REJECT", ["Too illiquid for practical execution."]
     elif c.adv20_usd < cfg["adv20_pass_min"]: reasons.append("Liquidity only qualifies for WATCH.")

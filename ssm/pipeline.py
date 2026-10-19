@@ -6,12 +6,13 @@ from .event_rules import classify_event
 from .dilution import heuristic_extract_dilution, apply_override
 from .gates import evaluate_gates
 from .scoring import score_candidate, bucket_candidate
-from .providers.sec import SecClient, latest_fact_value, filing_risk_flags
+from .providers.sec import SecClient, latest_fact_record, filing_risk_flags
 from .providers.market import market_snapshot, market_snapshots
 from .financial_review import financial_note_hits, conservative_merge_dilution, cover_page_common_shares, extract_atm_remaining_usd
 from .events import review_material_events, event_terms, event_status
 from .securities import resolve_security
 from .recapitalization import reconcile_capital_context
+from .capital_evidence import completed_warrant_exercise_evidence
 from .financial_recapitalization import financial_capital_contexts
 
 OFFERING_FORMS = {"S-1", "S-3", "424B3", "424B5"}
@@ -40,11 +41,12 @@ def _ticker_map(sec):
     return by_cik, by_ticker
 
 def _common_shares(facts):
-    v = latest_fact_value(facts, "EntityCommonStockSharesOutstanding")
+    """Return dated SEC common-shares evidence, or (0, None)."""
+    record = latest_fact_record(facts, "EntityCommonStockSharesOutstanding")
     try:
-        return float(v) if v else 0.0
-    except Exception:
-        return 0.0
+        return (float(record["val"]), record) if record and float(record["val"]) > 0 else (0.0, None)
+    except (TypeError, ValueError):
+        return 0.0, None
 
 def _items(filing):
     return {x.strip() for x in (filing.get("items") or "").replace(";", ",").split(",") if x.strip()}
@@ -148,9 +150,13 @@ def build_candidate(sec, meta, filing, overrides, cfg, snapshot=None):
             c.latest_financial_filing_date = financial_record.get("filed")
             c.latest_financial_form = financial_record.get("form")
             c.latest_financial_accession = financial_record.get("accession")
-        common = _common_shares(sec.companyfacts(meta["cik"]))
+        common, share_record = _common_shares(sec.companyfacts(meta["cik"]))
         if common > 0:
-            c.common_shares_source = "companyfacts"
+            c.common_shares_as_of = share_record.get("end")
+            c.common_shares_source = (
+                "SEC companyfacts as of " + (c.common_shares_as_of or "date unresolved")
+                + ", filed " + share_record.get("filed", "unknown")
+            )
     except Exception as e:
         common = 0.0
         c.data_warnings.append(f"SEC facts error: {e}")
@@ -326,11 +332,15 @@ def build_candidate(sec, meta, filing, overrides, cfg, snapshot=None):
         # Historical financial evidence is read-only: it cannot re-add shares,
         # subtract FD instruments, or rewrite the representative 8-K catalyst.
         try:
-            financial_capital = financial_capital_contexts(financial_text, financial_record, reviewed)
+            c.validation_audit.update(history_common_before=c.dilution.common_shares,history_confidence_before=c.dilution.confidence)
+            financial_capital = financial_capital_contexts(financial_text, financial_record, reviewed,
+                                                         baseline={'share_count_conflict':c.share_count_conflict})
             if financial_capital:
                 c.event_terms['financial_capital_context_history'] = financial_capital
-                c.dilution.confidence = 'low'
-                c.data_warnings.append('Financial filing capital history is read-only; financing links do not certify current post-transaction FD balances.')
+                if any(row['context'].get('reconciliation_required') for row in financial_capital):
+                    c.dilution.confidence = 'low'
+                    c.data_warnings.append('Current financial capital events require FD reconciliation; historical issuance is not re-added and financing links do not waive dilution risk.')
+            c.validation_audit.update(history_common_after=c.dilution.common_shares,history_confidence_after=c.dilution.confidence)
         except Exception as exc:
             c.dilution.confidence = 'low'
             c.event_terms['financial_capital_review_incomplete'] = True
@@ -361,6 +371,32 @@ def build_candidate(sec, meta, filing, overrides, cfg, snapshot=None):
         if any(x['context'].get('reconciliation_required') for x in capital_history):
             c.dilution.confidence = 'low'
             c.data_warnings.append('Capital issuance/retirement requires complete post-transaction FD reconciliation; economic context does not clear dilution warnings.')
+
+    # A companyfacts balance predating a verified capital transaction is not
+    # a certified *current* common-share count. Do not automatically add shares
+    # from overlapping 8-K descriptions or apply an uncertain warrant ratio.
+    # Mask derived market-cap metrics until a newer dated SEC common balance
+    # and the outstanding instruments have been reconciled.
+    if c.common_shares_as_of:
+        post_baseline_events = [
+            e for e in capital_events
+            if (e.get('filed') or '') > c.common_shares_as_of
+            and (
+                (e.get('terms', {}).get('capital_context', {}).get('actual_common_issued') or 0) > 0
+                or (e.get('terms', {}).get('capital_context', {}).get('actual_common_equivalent_shares') or 0) > 0
+                or (e.get('event_status') == 'COMPLETED'
+                    and (e.get('terms', {}).get('warrant_reconciliation_required')
+                         or completed_warrant_exercise_evidence(e.get('combined_text', ''))))
+            )
+        ]
+        if post_baseline_events:
+            c.event_terms['common_share_baseline_stale'] = True
+            c.dilution.confidence = 'low'
+            c.data_warnings.append(
+                f"Common-share balance as of {c.common_shares_as_of} predates "
+                f"{len(post_baseline_events)} completed/reportable capital event(s); "
+                "updated share count and instrument retirements are unresolved."
+            )
 
     if c.event_terms.get('warrant_reconciliation_required') and c.dilution.confidence != 'high':
         c.dilution.confidence = 'low'

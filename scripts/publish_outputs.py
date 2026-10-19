@@ -21,6 +21,8 @@ def publish_outputs(repo: Path, source_commit: str, attempts: int = 3) -> str:
     if missing:
         raise ValueError(f'Incomplete scan snapshot: {missing}')
     snapshot = {name: (repo / 'output' / name).read_bytes() for name in required}
+    for name in ('validation_audit.json',):
+        if (repo/'output'/name).is_file():snapshot[name]=(repo/'output'/name).read_bytes()
     quality = json.loads(snapshot['quality.json'])
     quality['source_commit'] = source_commit
     quality['workflow_run_id'] = os.getenv('GITHUB_RUN_ID', '')

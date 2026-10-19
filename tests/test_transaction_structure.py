@@ -73,7 +73,7 @@ def test_cash_at_closing_cvr_remains_distinct_from_pipe_cash_and_fractional_shar
     assert classify_event(award_cash)[0]=='MERGER_CASH_CVR'
     stock=('The Company entered into a merger agreement in a stock-for-stock transaction with a contingent value right. '
            'A PIPE will raise $146 million in cash. Cash in lieu of fractional shares will be paid.')
-    assert classify_event(stock)[0]=='REVERSE_MERGER_CVR'
+    assert classify_event(stock)[0]=='MERGER_STOCK_CVR'
 
 
 def test_routine_credit_amendment_is_not_special_situation_pass(tmp_path):

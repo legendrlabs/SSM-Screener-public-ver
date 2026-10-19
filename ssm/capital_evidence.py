@@ -61,6 +61,30 @@ def capital_clauses(text: str) -> list[str]:
     return re.split(r'(?<=[.;])\s+', visible_filing_text(bounded))
 
 
+def completed_warrant_exercise_evidence(text: str) -> bool:
+    """Recognize a closed warrant exercise as a common-count change candidate.
+
+    This is a *reconciliation flag*, never a claim that a warrant unit equals
+    an issued share. Replacement/Reload warrants remain separate instruments.
+    Require both issuer exercise language and completed transaction evidence;
+    signing or expected closings are not enough.
+    """
+    plain = visible_filing_text(text)
+    exercise = re.search(
+        r'(?:holder|investor|purchaser|company).{0,120}?(?:exercised|agreed to exercise)'
+        r'.{0,150}?\bwarrants?\b|'
+        r'\bwarrants?\b.{0,120}?(?:were|have been)\s+exercised\b',
+        plain, re.I
+    )
+    closing = re.search(
+        r'\b(?:inducement transaction|warrant exercise transaction|warrant exercise|exercise transaction)'
+        r'\s+(?:has\s+)?(?:closed|completed|consummated)\b|'
+        r'\b(?:closed|completed|consummated)\s+(?:the\s+)?warrant exercise transaction\b',
+        plain, re.I
+    )
+    return bool(exercise and closing)
+
+
 def pending_stock_consideration(text: str):
     plain = visible_filing_text(text)
     payment = re.search(r'(?:purchase price|consideration).{0,130}will be paid in.{0,60}common stock|common stock.{0,100}to be issued.{0,80}(?:closing|payment)|will issue.{0,60}shares.{0,70}(?:consideration|target shareholders)', plain, re.I)

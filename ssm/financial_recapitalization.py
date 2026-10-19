@@ -151,7 +151,10 @@ def _classify_current_impact(context,financial_record,baseline,retired,clauses):
     if not period:reasons.append('UNKNOWN_FINANCIAL_PERIOD')
     if period and any(d and d>period for d in dates):reasons.append('SUBSEQUENT_EVENT')
     if context.get('actual_common_equivalent_shares') is not None:reasons.append('COMMON_WARRANT_SPLIT_UNRESOLVED')
-    if context.get('actual_common_issued') is None:reasons.append('ISSUANCE_QUANTITY_UNRESOLVED')
+    # Retirement-only evidence has no issuance quantity to reconcile. Keep
+    # its public None representation without inventing zero issued shares.
+    if context.get('actual_common_issued') is None and context.get('issuance_type') != 'NONE':
+        reasons.append('ISSUANCE_QUANTITY_UNRESOLVED')
     if context.get('source_conflict') or baseline.get('share_count_conflict'):reasons.append('SOURCE_CONFLICT')
     asof=baseline.get('as_of')
     if asof and when and when>asof:reasons.append('AFTER_CURRENT_SHARE_BASELINE')

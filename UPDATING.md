@@ -1,5 +1,13 @@
 # SSM 업데이트
 
+## 통합 배포 v1.1.5
+
+업데이트 주소는 기존 `legendrlabs/SSM-Screener-public-ver` 그대로입니다. `SSM-Screener`로 설치 주소를 바꿀 필요가 없습니다. v1.1.2 이상은 `ssm version`으로 확인하고 `ssm update`로 통합 엔진을 받습니다. v1.1.1 이하는 아래 재설치 절차를 사용합니다. Git 설치본에 로컬 변경이 있으면 강제로 덮어쓰지 않고 중단합니다.
+
+이제 이 저장소를 개발·배포 기준으로 사용합니다. 원본 운영 저장소의 watchlist, overrides, 기존 결과나 SEC 연락처 설정을 배포하지 않습니다. GitHub 릴리스에 동봉된 `release.json`이 authoritative manifest이며 저장소 루트의 과거 정적 사본은 제거했습니다.
+
+main의 pyproject.toml 변경은 전체 테스트 후 새 버전 릴리스를 준비합니다. 이미 다른 commit을 가리키는 같은 버전 태그가 있으면 건너뛰며 태그나 공개 asset을 덮어쓰지 않습니다. 태그 push와 수동 태그 배포도 유지합니다.
+
 ## v1.1.4 이상
 
 현재 설치 버전과 최신 공개 release를 확인합니다.
