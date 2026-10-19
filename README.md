@@ -15,6 +15,22 @@
 > **숫자가 불완전하면 PASS가 아니라 DATA_HOLD다.**
 
 
+## 퍼블릭 정기 스캔 및 채팅 보고
+
+ChatGPT 스킬 번들의 자동 호출과 별개로, 퍼블릭 GitHub 저장소에서
+**평일 20:30 KST 및 익일 07:30 KST** 정기 스캔을 실행하고 성공한
+결과 스냅샷을 `output/`에 게시하도록 운영합니다.
+
+- 스캔: [GitHub Actions — SSM Daily Scan](../../actions/workflows/daily-scan.yml)
+- 결과: [output/quality.json](output/quality.json), [output/latest.md](output/latest.md) 및 CSV 파일
+- 필수 준비: 퍼블릭 저장소의 Actions Secret `SEC_USER_AGENT` 설정,
+  `GITHUB_TOKEN`의 `contents: write` 권한 및 브랜치 쓰기 정책 확인
+- 초기/최신 결과가 존재하지 않을 때는 성공한 스캔으로 간주하지 않고 `DATA_HOLD`합니다.
+- 스캔은 자동화돼도 종목의 `PASS`나 `SAFE_TO_ACT`는 엔진 결과를 그대로 따릅니다.
+
+자세한 운영·검증 및 개인 설정 보호 기준은 [정기 스캔 운영 가이드](docs/operations/public-scan.md)를 참고하세요.
+이 경로는 **GitHub 보고용**이며 ChatGPT 개인 스킬의 설치 상태를 자동으로 해결하지는 않습니다.
+
 ## ChatGPT / Codex에서 설치해서 사용하기
 
 스킬 설치와 Python·외부 데이터 조회를 지원하는 환경에서 아래 요청을 붙여넣습니다.
