@@ -1,5 +1,14 @@
 # SSM 업데이트
 
+## CLI 안정화 v1.1.7 — Work/Codex 격리 실행
+
+- `python "<SKILL_DIR>/scripts/run_ssm.py" --help`: Python 3.11+만으로 동작하며 SEC/시장 모듈을 import하지 않습니다.
+- `python "<SKILL_DIR>/scripts/run_ssm.py" version --offline`: 외부 패키지·네트워크 없이 로컬 버전 확인. `check_error=OFFLINE_CHECK_SKIPPED`와 `update_available=null`은 조회 생략을 의미합니다.
+- 온라인 `version`: GitHub Release `release.json`을 표준 라이브러리로 검사합니다. HTTP 요청별 8초 타임아웃과 일시적인 오류에 한 번 재시도를 적용하며, 실패 시 `latest=null`, `update_available=null`, `check_error`를 반환합니다. `false`는 성공적으로 비교 후 업데이트가 없는 경우에만 사용합니다.
+- 기본 Python에 스캔 의존성이 없으면 기존 스킬을 변경하지 말고 `python "<SKILL_DIR>/scripts/prepare_runtime.py" --venv "<TASK_DIR>/.ssm-venv"`를 실행합니다. 출력된 격리 Python으로 `scan`/`check`를 수행합니다. PyPI 접근이 실패하면 별도로 보고하고 작업을 중단합니다.
+- `update`와 `scan`은 의존성 설치와 다른 단계입니다. 업데이트는 명시적 사용자 승인 후 실행하며 설치본 Git/번들·무결성 및 개인 설정 보존 정책은 변하지 않습니다. 이미 설치한 Work 스킬이 GitHub 릴리스로 자동 교체되는 것은 아닙니다.
+
+
 ## 최신 배포 v1.1.6 — 사용자별 SEC 설정
 
 v1.1.6은 배포 전용 정책을 정식 릴리스에 반영합니다. 중앙 SEC 자동 스캔과 원본 저장소의 결과 게시 워크플로는 제거되어, 설치자마다 **자신의 실행 환경에서** 연락 가능한 이름·이메일로 `SEC_USER_AGENT`를 설정합니다. 이 값은 SEC 로그인 비밀번호나 API 키가 아닌 요청자 연락처이며, 공개 코드나 릴리스에 포함하지 않습니다.
