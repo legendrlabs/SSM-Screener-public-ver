@@ -1,6 +1,6 @@
 # SSM 업데이트
 
-## CLI 안정화 v1.1.7 — Work/Codex 격리 실행
+## 최신 배포 v1.1.7 — Work/Codex CLI 안정화 · 격리 실행
 
 - `python "<SKILL_DIR>/scripts/run_ssm.py" --help`: Python 3.11+만으로 동작하며 SEC/시장 모듈을 import하지 않습니다.
 - `python "<SKILL_DIR>/scripts/run_ssm.py" version --offline`: 외부 패키지·네트워크 없이 로컬 버전 확인. `check_error=OFFLINE_CHECK_SKIPPED`와 `update_available=null`은 조회 생략을 의미합니다.
