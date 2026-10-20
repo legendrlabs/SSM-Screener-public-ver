@@ -41,13 +41,44 @@ def verify(out: Path, *, run_id: str, commit: str, trigger: str, days: int) -> d
         raise ValueError("Gate/bucket mismatch: scan needs review")
     if quality.get("watch_reported_count", quality["watch_count"]) != quality["watch_count"]:
         raise ValueError("WATCH report disagrees with quality.json")
+    completed_at_utc = datetime.now(timezone.utc).isoformat()
+    scope = quality.get("scan_scope", "FULL")
+    if scope not in ("FULL", "INCREMENTAL_DELTA"):
+        raise ValueError("Unsupported scan scope")
+    seen_file = out / "seen_filings.json"
+    if quality.get("scan_scope") and not seen_file.is_file():
+        raise ValueError("Completed scan is missing seen_filings.json checkpoint")
+    seen = json.loads(seen_file.read_text(encoding="utf-8")) if seen_file.is_file() else None
+    if seen is not None:
+        if seen.get("schema_version") != 1 or not isinstance(seen.get("entries"), dict):
+            raise ValueError("Invalid seen-filing ledger")
+        if seen.get("run_id") not in (None, str(run_id)):
+            raise ValueError("Seen ledger run identity mismatch")
+        if scope == "INCREMENTAL_DELTA":
+            if not seen.get("last_full_completed_at_utc") or not quality.get("incremental_source_run_id"):
+                raise ValueError("Incremental scan missing previous verified baseline")
+            if "INCREMENTAL DELTA ONLY" not in report:
+                raise ValueError("Delta report must identify incomplete market coverage")
+            last_full = seen["last_full_completed_at_utc"]
+        else:
+            last_full = completed_at_utc
+        seen["run_id"] = str(run_id)
+        seen["last_full_completed_at_utc"] = last_full
+        seen_file.write_text(json.dumps(seen, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    else:
+        last_full = completed_at_utc
     metadata = {
+        "scan_scope": scope,
+        "last_full_completed_at_utc": last_full,
+        "checkpoint_source_run_id": quality.get("incremental_source_run_id"),
+        "new_filing_count": quality.get("new_filing_count"),
+        "discovered_filing_count": quality.get("discovered_filing_count"),
         "scan_status": "SUCCESS",
         "run_id": str(run_id),
         "source_commit": commit,
         "trigger": trigger,
         "days": days,
-        "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "completed_at_utc": completed_at_utc,
         "SAFE_TO_ACT": quality["SAFE_TO_ACT"],
         **{k: quality[k] for k in (*CATEGORIES, "candidate_count")},
     }
@@ -74,6 +105,9 @@ def main() -> int:
             f.write("## SSM verified SEC scan\n\n")
             f.write(f"- Run: `{summary['run_id']}` / source: `{summary['source_commit'][:12]}`\n")
             f.write(f"- Lookback: {summary['days']} days; trigger: {summary['trigger']}\n")
+            f.write(f"- Scope: **{summary['scan_scope']}**; last full: {summary['last_full_completed_at_utc']}\n")
+            if summary["scan_scope"] == "INCREMENTAL_DELTA":
+                f.write("- **DELTA ONLY:** totals do not represent the whole active universe.\n")
             f.write(f"- SAFE_TO_ACT: **{summary['SAFE_TO_ACT']}**\n")
             f.write(f"- PASS: {summary['pass_count']}, WATCH: {summary['watch_count']}, "
                     f"DATA_HOLD: {summary['data_hold_count']}\n")
