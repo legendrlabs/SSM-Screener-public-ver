@@ -7,9 +7,33 @@ import os
 import sys
 import tempfile
 
-from .pipeline import scan
-from .report import write_outputs
-from .updater import maybe_update_notice, perform_update, version_status
+# Keep this module importable using only the Python standard library.
+# The scanner, market providers and their optional dependencies are loaded only
+# after argument parsing selects scan/check. Thin wrappers keep test injection
+# points stable for bundled and console-script entrypoints.
+def scan(*args, **kwargs):
+    from .pipeline import scan as run_scan
+    return run_scan(*args, **kwargs)
+
+
+def write_outputs(*args, **kwargs):
+    from .report import write_outputs as writer
+    return writer(*args, **kwargs)
+
+
+def version_status():
+    from .updater import version_status as status
+    return status()
+
+
+def maybe_update_notice():
+    from .updater import maybe_update_notice as notice
+    return notice()
+
+
+def perform_update(dry_run=False):
+    from .updater import perform_update as update
+    return update(dry_run)
 
 
 def _restart_current_command() -> None:
@@ -40,14 +64,23 @@ def main():
     c.add_argument("--overrides", default="config/overrides.json")
     c.add_argument("--out", default="output")
 
-    sub.add_parser("version")
+    v = sub.add_parser("version")
+    v.add_argument("--offline", action="store_true", help="show local version without network access")
     u = sub.add_parser("update")
     u.add_argument("--dry-run", action="store_true")
 
     a = p.parse_args()
 
     if a.cmd == "version":
-        print(json.dumps(version_status(), ensure_ascii=False, indent=2))
+        if a.offline:
+            from .updater import current_version
+            status = {
+                "current": current_version(), "latest": None,
+                "update_available": None, "check_error": "OFFLINE_CHECK_SKIPPED"
+            }
+        else:
+            status = version_status()
+        print(json.dumps(status, ensure_ascii=False, indent=2))
         return
     if a.cmd == "update":
         print(json.dumps(perform_update(a.dry_run), ensure_ascii=False, indent=2))
