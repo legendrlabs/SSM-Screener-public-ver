@@ -7,7 +7,7 @@ description: Run the bundled SSM Screener for U.S. stock special situations and 
 
 Canonical development/distribution repository: https://github.com/legendrlabs/SSM-Screener-public-ver . Use its published release and existing update workflow for v1.1.7 and later.
 
-**Distribution-only policy:** This public repository does not run SEC screening jobs or publish live scan results. Every recipient runs their own installed engine and supplies their **own** `SEC_USER_AGENT` only in their execution environment. Never read the canonical repository's `output/` as a substitute for a fresh scan. Do not upload user SEC contact details, watchlists, overrides, or results to the public repository.
+**Distribution + maintainer operator scans:** This public repository provides the versioned skill and an independent maintainer-operated manual/scheduled GitHub Actions SEC scan. Operator contact is configured solely as the repository `SEC_USER_AGENT` Actions secret. Verified scan results are stored only as seven-day GitHub Actions artifacts and are publicly accessible there, never committed to `output/`. Each installed recipient still runs their own skill and supplies their own SEC contact in their own execution environment. Do not treat prior artifacts or the empty tracked `output/` as fresh installed-skill execution. Do not upload recipient contacts, private watchlists, overrides, or results to this repository.
 
 ## Purpose
 

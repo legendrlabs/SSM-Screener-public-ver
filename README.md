@@ -2,7 +2,7 @@
 
 미국 상장 마이크로캡 중 **구조적 재평가 가능성이 있는 특수상황**을 재현 가능한 규칙으로 1차 선별하는 스크리너입니다.
 
-이 저장소는 배포·업데이트 전용입니다. **v1.1.7은 Work/Codex처럼 기본 Python 의존성이 없는 환경을 위한 CLI 경량화·격리 실행환경 준비·업데이트 조회 안정화 릴리스**입니다. v1.1.6은 사용자별 SEC 연락처 설정 정책을 명확히 하고 중앙 스캔/결과 게시를 제거한 릴리스입니다. 스크리닝 엔진의 판정 규칙은 v1.1.5를 유지합니다. v1.1.5는 `SSM-Screener`의 2026-10-18 판정 엔진 변경과 기존 공개 배포본의 설치·업데이트 기능을 합쳤습니다. 기존 v1.1.2 이상 사용자는 `ssm update` 경로를 유지합니다. 원본 운영 저장소의 개인 설정·실행 결과는 옮기지 않았습니다. [통합 내역과 검증 범위](docs/integration/2026-10-19-unification.md)를 참고하세요.
+이 저장소는 스킬 배포·업데이트와 운영자 전용 수동/정기 SEC 스캔을 함께 제공합니다. **v1.1.7은 Work/Codex처럼 기본 Python 의존성이 없는 환경을 위한 CLI 경량화·격리 실행환경 준비·업데이트 조회 안정화 릴리스**입니다. v1.1.6은 사용자별 SEC 연락처 설정 정책을 명확히 하고 중앙 스캔/결과 게시를 제거한 릴리스입니다. 스크리닝 엔진의 판정 규칙은 v1.1.5를 유지합니다. v1.1.5는 `SSM-Screener`의 2026-10-18 판정 엔진 변경과 기존 공개 배포본의 설치·업데이트 기능을 합쳤습니다. 기존 v1.1.2 이상 사용자는 `ssm update` 경로를 유지합니다. 원본 운영 저장소의 개인 설정·실행 결과는 옮기지 않았습니다. [통합 내역과 검증 범위](docs/integration/2026-10-19-unification.md)를 참고하세요.
 
 수정·완료 판단은 [v1 안정화 기준](docs/stabilization-policy.md)을 따릅니다. 실전 영향이 있는 오류를 공통 원인 단위로 수정하고, 영향이 없는 세부 표현 차이는 예외 패치 없이 남깁니다.
 
@@ -15,16 +15,21 @@
 > **숫자가 불완전하면 PASS가 아니라 DATA_HOLD다.**
 
 
-## 배포 전용 저장소 · 사용자별 SEC 설정
+## 배포 및 운영자 SEC 스캔 (개인 설정 분리)
 
-이 저장소는 **SSM 스킬/Python 엔진의 소스코드·테스트·릴리스 배포 전용**입니다.
+이 공개 저장소는 **스킬 소스·테스트·릴리스 배포**와 **저장소 운영자용 GitHub Actions SEC 스캔**을 제공하지만, 두 실행 경로는 독립적입니다.
 
-- 저장소 운영자는 SEC 공시를 주기적으로 스캔하거나 중앙 `output/` 보고서를 게시하지 않습니다.
-- 배포받은 사용자는 **자신의 설치 환경에서** `SEC_USER_AGENT`를 설정한 후 스캔합니다.
-- `SEC_USER_AGENT`는 SEC 로그인 비밀번호나 API 키가 아닌 **자동 요청자의 연락처(User-Agent)** 입니다. 각 사용자의 실제 영문 이름 또는 단체명과 연락 가능한 이메일을 사용합니다.
-- 이름·이메일, 관심종목, 수동 희석 보정, 실전 결과는 이 퍼블릭 저장소에 커밋하거나 배포 패키지에 포함하지 않습니다.
-- GitHub Releases 및 코드 검증용 Actions는 유지하지만 **중앙 SEC 스캔 워크플로는 제공하지 않습니다.**
-- 이 저장소의 `output/` 디렉터리는 빈 자리표시자일 뿐이며, 여기에서 `quality.json`/매매 후보를 조회할 수 없습니다.
+- 수동/정기 워크플로: [SSM SEC Scan (Manual + Scheduled)](https://github.com/legendrlabs/SSM-Screener-public-ver/actions/workflows/sec-scan.yml)
+- 운영자는 Repository → Settings → Secrets and variables → Actions에 `SEC_USER_AGENT` **repository secret**을 설정해야 합니다. 유효한 ASCII 영문 이름/조직명과 연락 가능한 이메일을 사용하며, **코드·커밋·로그에 표시하지 않습니다.**
+- 정기 실행: **월~금 20:30 KST**, **화~토 07:30 KST** (UTC 11:30 및 22:30, 월~금). GitHub Actions 스케줄은 지연되거나 누락될 수 있습니다.
+- 수동 실행: Actions → SSM SEC Scan (Manual + Scheduled) → **Run workflow** → lookback 1/3/7/14/30일 선택(기본 7일).
+- Python 3.11 + `requests`/`pandas`/`yfinance`; SEC discovery는 `atom`, 시장 데이터는 `yfinance`; 동일 워크플로의 출력 검증이 성공한 경우에만 완료로 판정합니다.
+- 결과는 실행별 `ssm-sec-scan-<run_id>` **GitHub Actions artifact**에 7일간 보관됩니다. 공개 저장소의 Actions 아티팩트는 외부 이용자가 접근할 수 있으므로, 개인 워치리스트·비공개 override·SEC 연락처를 결과에 포함시키지 않습니다.
+- 결과 파일은 `quality.json`, `latest.md`, `candidates.csv`, `dilution_check.csv`, `event_ledger.csv`, `validation_audit.json`, `run_metadata.json`입니다. `run_metadata.json`에 실행 번호·소스 커밋·실행 완료 시각·트리거가 저장됩니다.
+- `SAFE_TO_ACT=false`/PASS 0/DATA_HOLD는 **정상적으로 끝난 스캔의 분석 판정**일 수 있습니다. 실행 실패와 구분해야 합니다.
+- `output/`는 계속 비어 있으며 자동으로 커밋·푸시하지 않습니다. 따라서 `output/quality.json`을 과거 결과로 읽으면 안 됩니다. 새로운 결과는 **같은 실행의 artifact**에서만 읽습니다.
+- 배포 사용자들의 SEC 연락처·개인 포트폴리오·설정은 중앙으로 수집되지 않으며, 스킬 설치 후 개인 스캔은 각자의 런타임에서 실행합니다.
+- 스케줄 실행은 GitHub-hosted runner 시간과 외부 SEC 요청량을 사용합니다. 같은 날 중복 전체 스캔은 피해야 합니다.
 
 [사용자별 SEC 설정 및 로컬 실행 안내](docs/operations/user-sec-setup.md)를 참고하세요.
 
@@ -190,7 +195,7 @@ SEC filing의 warrant / convert / preferred 구조는 표준 XBRL 태그가 없�
 
 미해결 희석 항목은 다른 공시나 첨부자료에 희석 언급이 없다는 이유로 해소되지 않습니다. 신뢰도가 low이면 DATA_HOLD를 유지하고 완전희석 시총·FD 배수·완전희석 총주식수는 빈칸으로 출력합니다. 추출한 개별 숫자는 검토용이며, 현재 잔량과 과거 발행·행사 수량 및 역분할 조정 여부를 대조하기 전에는 확정 cap table이 아닙니다.
 
-결과 파일은 **실행한 사용자 자신의 작업 환경에만** 저장합니다. 공개 배포 저장소는 사용자별 `quality.json`·CSV·`latest.md`를 수집하거나 게시하지 않습니다. 결과의 실행 날짜·데이터 출처는 생성된 보고서의 메타데이터로 확인합니다.
+로컬/스킬 사용자의 결과는 해당 실행자의 작업 환경에만 저장합니다. 저장소 운영자용 Actions 스캔 결과는 별도 7일 만료 아티팩트에 저장하며, `output/`에 게시하지 않습니다. 반드시 `run_metadata.json`의 실행 날짜·run_id를 확인하고 기존 결과를 최신으로 간주하지 마세요.
 
 ## v1 배포 범위
 
