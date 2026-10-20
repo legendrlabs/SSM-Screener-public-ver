@@ -37,7 +37,7 @@ jobs:
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       SSM_SEC_DISCOVERY_MODE: atom
       SSM_MARKET_PROVIDER: yfinance
-      SSM_OUT: ${{ runner.temp }}/ssm-output
+      SSM_OUT: /tmp/ssm-output
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
 
     steps:
@@ -103,6 +103,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ssm-sec-scan-${{ github.run_id }}
-          path: ${{ runner.temp }}/ssm-output/
+          path: /tmp/ssm-output/
           if-no-files-found: error
           retention-days: 7
