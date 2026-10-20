@@ -1,0 +1,108 @@
+# Operator scans are separate from skill distribution. The public repository's
+# tracked output/ remains empty; run artifacts are intentionally short-lived.
+name: SSM SEC Scan (Manual + Scheduled)
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'SEC lookback days (default 7)'
+        type: choice
+        required: true
+        default: '7'
+        options:
+          - '1'
+          - '3'
+          - '7'
+          - '14'
+          - '30'
+  schedule:
+    # GitHub cron is UTC; Korea has no daylight saving time.
+    - cron: '30 11 * * 1-5'  # Mon-Fri 20:30 KST
+    - cron: '30 22 * * 1-5'  # Tue-Sat 07:30 KST
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ssm-public-sec-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    if: github.repository == 'legendrlabs/SSM-Screener-public-ver'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      SSM_SEC_DISCOVERY_MODE: atom
+      SSM_MARKET_PROVIDER: yfinance
+      SSM_OUT: ${{ runner.temp }}/ssm-output
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+
+    steps:
+      - name: Check operator SEC contact configuration
+        shell: bash
+        run: |
+          if [ -z "$SEC_USER_AGENT" ]; then
+            echo "::error::Missing repository Actions secret SEC_USER_AGENT; configure a valid SEC contact before running."
+            exit 1
+          fi
+          echo "SEC_USER_AGENT configured (value not displayed)."
+
+      - name: Validate manual lookback or use scheduled default
+        id: settings
+        shell: bash
+        env:
+          REQUESTED_DAYS: ${{ inputs.days || '7' }}
+        run: |
+          case "$REQUESTED_DAYS" in
+            1|3|7|14|30) ;;
+            *) echo "::error::days must be 1, 3, 7, 14, or 30"; exit 1 ;;
+          esac
+          echo "days=$REQUESTED_DAYS" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install scanner dependencies
+        run: python -m pip install -e .
+
+      - name: Verify bundled CLI without third-party imports
+        run: |
+          python -S scripts/run_ssm.py --help
+          python -S scripts/run_ssm.py version --offline
+
+      - name: Full SEC scan
+        shell: bash
+        env:
+          SCAN_DAYS: ${{ steps.settings.outputs.days }}
+        run: |
+          mkdir -p "$SSM_OUT"
+          python scripts/run_ssm.py scan --days "$SCAN_DAYS" --out "$SSM_OUT"
+
+      - name: Validate same-run outputs and generate run metadata
+        shell: bash
+        env:
+          SCAN_DAYS: ${{ steps.settings.outputs.days }}
+        run: |
+          python scripts/verify_scan_outputs.py \
+            --out "$SSM_OUT" \
+            --run-id "$GITHUB_RUN_ID" \
+            --commit "$GITHUB_SHA" \
+            --trigger "$GITHUB_EVENT_NAME" \
+            --days "$SCAN_DAYS"
+
+      - name: Upload dated scan reports (public repository artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssm-sec-scan-${{ github.run_id }}
+          path: ${{ runner.temp }}/ssm-output/
+          if-no-files-found: error
+          retention-days: 7
