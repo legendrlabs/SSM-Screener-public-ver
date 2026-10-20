@@ -420,14 +420,48 @@ def build_candidate(sec, meta, filing, overrides, cfg, snapshot=None):
     c.bucket = bucket_candidate(c)
     return c
 
-def scan(days=7, config_path="config/default.json", watchlist_path="config/watchlist.csv", overrides_path="config/overrides.json"):
+def _filing_key(raw):
+    """Stable SEC identity; never deduplicate using the ticker or filing date."""
+    cik = str(int(raw["cik"]))
+    form = str(raw.get("form") or "")
+    accession = raw.get("accession") or raw.get("filename") or raw.get("index_url")
+    if not accession:
+        raise ValueError("SEC discovery filing has no stable accession or URL")
+    return "|".join((cik, form, str(accession)))
+
+
+def scan(days=7, config_path="config/default.json", watchlist_path="config/watchlist.csv",
+         overrides_path="config/overrides.json", incremental_state_path=None):
     cfg = load_json(config_path)
+    previous_entries = {}
+    previous_run_id = None
+    if incremental_state_path is not None:
+        previous = load_json(incremental_state_path)
+        if previous.get("schema_version") != 1 or not isinstance(previous.get("entries"), dict):
+            raise ValueError("Incompatible incremental checkpoint; run full scan")
+        previous_entries = previous["entries"]
+        previous_run_id = previous.get("run_id")
+        if not previous_run_id:
+            raise ValueError("Incremental checkpoint missing source run ID")
     overrides = load_json(overrides_path) if Path(overrides_path).exists() else {}
     sec = SecClient()
     by_cik, by_ticker = _ticker_map(sec)
     latest = {}
-
+    # Rolling ledger means the same accession in SEC's overlapping Atom
+    # pages is not treated as a newly discovered event on every run.
+    from datetime import date, timedelta
+    ledger_cutoff = (date.today() - timedelta(days=10)).isoformat()
+    encountered = {k: v for k, v in previous_entries.items()
+                   if isinstance(v, str) and v >= ledger_cutoff}
+    discovery_count = 0
+    new_discovery_count = 0
     for raw in sec.recent_filings(days, cfg["event_forms"]):
+        discovery_count += 1
+        key = _filing_key(raw)
+        if key in encountered and incremental_state_path is not None:
+            continue
+        new_discovery_count += 1
+        encountered[key] = raw.get("filed") or date.today().isoformat()
         metas = by_cik.get(str(int(raw["cik"])), [])
         if not metas:
             continue
@@ -486,5 +520,16 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
             represented.add(c.cik)
 
     cfg["_sec_discovery_mode"] = sec.last_discovery_mode or os.getenv("SSM_SEC_DISCOVERY_MODE", "auto")
+    cfg["_scan_scope"] = "INCREMENTAL_DELTA" if incremental_state_path is not None else "FULL"
+    cfg["_incremental_source_run_id"] = previous_run_id
+    cfg["_discovered_filing_count"] = discovery_count
+    cfg["_new_filing_count"] = new_discovery_count
+    cfg["_seen_filings"] = {
+        "schema_version": 1, "run_id": os.environ.get("GITHUB_RUN_ID"),
+        "entries": encountered,
+        "last_full_completed_at_utc": None,
+    }
+    if incremental_state_path is not None:
+        cfg["_seen_filings"]["last_full_completed_at_utc"] = previous.get("last_full_completed_at_utc")
     out.sort(key=lambda c: (c.bucket == "A_RESEARCH_NOW", c.priority_score or -1), reverse=True)
     return out, cfg
