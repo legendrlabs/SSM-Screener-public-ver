@@ -78,15 +78,28 @@ def test_fetch_release_manifest_uses_bounded_standard_library_retries(monkeypatc
         "source_commit": "a" * 40, "managed_files": {},
     }
     calls = []
-    def pretend_get(where, timeout):
-        calls.append((where, timeout))
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self, limit):
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
         if len(calls) == 1:
             raise TimeoutError("first attempt")
-        return release if where == updater.LATEST_RELEASE_API else manifest
-    monkeypatch.setattr(updater, "_fetch_json", pretend_get)
+        return FakeResponse(release if request.full_url == updater.LATEST_RELEASE_API else manifest)
+
+    monkeypatch.setattr(updater, "urlopen", fake_urlopen)
+    monkeypatch.setattr(updater.time, "sleep", lambda delay: None)
     assert updater.fetch_release_manifest()["version"] == "1.1.7"
-    assert calls[0][1] >= 8
-    assert len(calls) == 2
+    assert all(timeout >= 8 for _, timeout in calls)
+    assert len(calls) == 3  # release retries once; asset is fetched once
 
 
 @pytest.mark.parametrize("url", [
