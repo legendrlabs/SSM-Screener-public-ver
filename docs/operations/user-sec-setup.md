@@ -1,8 +1,8 @@
 # 사용자별 SEC 연락처 설정 및 SSM 실행
 
-이 저장소 `legendrlabs/SSM-Screener-public-ver`는 **코드·스킬·릴리스 배포 전용**입니다.
-운영자가 중앙에서 SEC 공시 스캔을 돌리거나 결과를 `main/output/`에 게시하지 않습니다.
-SSM을 설치한 사람마다 **자신의 실행 환경에서** SEC 연락처를 설정하고 실행합니다.
+이 저장소 `legendrlabs/SSM-Screener-public-ver`는 **코드·스킬·릴리스 배포와 운영자용 SEC 스캔**을 제공합니다.
+운영자 스캔은 Actions 저장소 Secret과 수동/정기 워크플로만 사용하고, 결과를 `main/output/`에 커밋하지 않으며 별도 7일 보존 Actions 아티팩트로 남깁니다.
+SSM을 설치한 사람은 계속 **자신의 실행 환경에서** SEC 연락처를 설정하고 실행합니다.
 
 ## SEC_USER_AGENT란?
 
@@ -70,8 +70,13 @@ export SSM_SEC_DISCOVERY_MODE=atom
 
 ## GitHub Actions를 본인이 쓰고 싶은 경우
 
-이 배포 저장소에는 SEC 스캔용 GitHub Actions가 없습니다. 직접 자동화를 구성하는
-사용자는 **자신의 별도 저장소 또는 Fork에서**, 자신의
+이 공개 저장소에는 **유지보수자 전용** `SSM SEC Scan (Manual + Scheduled)` 워크플로가 있습니다.
+원본 저장소 운영자는 `Settings > Secrets and variables > Actions`에 `SEC_USER_AGENT`를
+Repository Secret으로 한 번 등록해야 합니다. 값은 로그/코드에 출력하거나 보관하지 않습니다.
+공개 아티팩트는 7일 보존이며 출처가 공개 SEC인 운영자 기본 설정만 스캔합니다.
+사용자별 설치/워치리스트/override를 중앙에서 대신 스캔하는 기능은 아닙니다.
+
+별도 저장소 또는 Fork에서 자동화를 운용하는 사용자는 각자의
 `Settings > Secrets and variables > Actions`에 `SEC_USER_AGENT`를 등록해야 합니다.
 원본 프로젝트의 Secret은 Fork/설치본으로 공유되지 않습니다.
 스크리닝 결과에 개인 관심종목이 포함될 수 있으므로, 공개 Fork에 결과를 커밋하거나
