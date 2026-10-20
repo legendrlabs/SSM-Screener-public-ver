@@ -468,6 +468,8 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         try:
             filing = sec.enrich_filing(metas[0]["cik"], raw)
         except Exception:
+            # Do not checkpoint an unverified filing as fully processed.
+            encountered.pop(key, None)
             filing = raw
         if not _material(filing, cfg):
             continue
@@ -504,6 +506,15 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
             c = Candidate(ticker=t, name=by_ticker[t]["name"], exchange=by_ticker[t]["exchange"], cik=by_ticker[t]["cik"])
             c.data_warnings.append(f"Pipeline error: {e}")
             out.append(c)
+
+    # A processing exception should be retried on the next incremental run,
+    # rather than being concealed forever by the accession checkpoint.
+    for c in out:
+        if any(str(w).startswith("Pipeline error:") for w in c.data_warnings):
+            try:
+                encountered.pop(_filing_key(latest[c.ticker]), None)
+            except (KeyError, ValueError):
+                pass
 
     # One issuer can list multiple common classes. Keep the SEC ticker-master's
     # first verified common class as representative, never a listed note.
