@@ -1,12 +1,20 @@
-# Operator scans are separate from skill distribution. The public repository's
-# tracked output/ remains empty; run artifacts are intentionally short-lived.
+# Separate operator runtime from the packaged ChatGPT skill.
+# One weekly full scan anchors bounded twice-daily, filing-delta scans.
 name: SSM SEC Scan (Manual + Scheduled)
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Full (default) or incremental with safe fallback'
+        type: choice
+        default: full
+        required: true
+        options:
+          - full
+          - incremental
       days:
-        description: 'SEC lookback days (default 7)'
+        description: 'Manual full SEC lookback days'
         type: choice
         required: true
         default: '7'
@@ -17,12 +25,13 @@ on:
           - '14'
           - '30'
   schedule:
-    # GitHub cron is UTC; Korea has no daylight saving time.
-    - cron: '30 11 * * 1-5'  # Mon-Fri 20:30 KST
-    - cron: '30 22 * * 1-5'  # Tue-Sat 07:30 KST
+    - cron: '30 11 * * 1'    # Monday 20:30 KST: weekly full
+    - cron: '30 11 * * 2-5'  # Tuesday-Friday 20:30 KST: incremental
+    - cron: '30 22 * * 1-5'  # Tuesday-Saturday 07:30 KST: incremental
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ssm-public-sec-scan
@@ -45,22 +54,10 @@ jobs:
         shell: bash
         run: |
           if [ -z "$SEC_USER_AGENT" ]; then
-            echo "::error::Missing repository Actions secret SEC_USER_AGENT; configure a valid SEC contact before running."
+            echo "::error::Missing repository Actions secret SEC_USER_AGENT."
             exit 1
           fi
-          echo "SEC_USER_AGENT configured (value not displayed)."
-
-      - name: Validate manual lookback or use scheduled default
-        id: settings
-        shell: bash
-        env:
-          REQUESTED_DAYS: ${{ inputs.days || '7' }}
-        run: |
-          case "$REQUESTED_DAYS" in
-            1|3|7|14|30) ;;
-            *) echo "::error::days must be 1, 3, 7, 14, or 30"; exit 1 ;;
-          esac
-          echo "days=$REQUESTED_DAYS" >> "$GITHUB_OUTPUT"
+          echo "SEC contact configured (value not displayed)."
 
       - uses: actions/checkout@v4
         with:
@@ -71,6 +68,40 @@ jobs:
           python-version: '3.11'
           cache: pip
 
+      - name: Verify manual lookback input
+        id: input
+        shell: bash
+        env:
+          REQUESTED_DAYS: ${{ inputs.days || '7' }}
+        run: |
+          case "$REQUESTED_DAYS" in
+            1|3|7|14|30) ;;
+            *) echo "::error::days must be 1, 3, 7, 14, or 30"; exit 1 ;;
+          esac
+          echo "days=$REQUESTED_DAYS" >> "$GITHUB_OUTPUT"
+
+      - name: Restore previous verified checkpoint or select full scan
+        id: plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_MODE: ${{ inputs.mode || 'auto' }}
+          CRON_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          mkdir -p "$SSM_OUT" /tmp/ssm-prior
+          python scripts/scan_checkpoint.py \
+            --requested "$REQUESTED_MODE" \
+            --schedule "$CRON_SCHEDULE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --out /tmp/ssm-prior
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          p = json.loads(Path('/tmp/ssm-prior/scan_plan.json').read_text())
+          print('mode=' + p['mode'])
+          print('days=' + str(p['days']))
+          PY
+
       - name: Install scanner dependencies
         run: python -m pip install -e .
 
@@ -79,27 +110,38 @@ jobs:
           python -S scripts/run_ssm.py --help
           python -S scripts/run_ssm.py version --offline
 
-      - name: Full SEC scan
+      - name: SEC full or incremental scan
         shell: bash
         env:
-          SCAN_DAYS: ${{ steps.settings.outputs.days }}
+          SCAN_MODE: ${{ steps.plan.outputs.mode }}
+          SCAN_DAYS: ${{ steps.plan.outputs.days }}
+          MANUAL_DAYS: ${{ steps.input.outputs.days }}
         run: |
-          mkdir -p "$SSM_OUT"
-          python scripts/run_ssm.py scan --days "$SCAN_DAYS" --out "$SSM_OUT"
+          if [ "$SCAN_MODE" = incremental ]; then
+            python scripts/run_ssm.py scan \
+              --days "$SCAN_DAYS" \
+              --incremental-state /tmp/ssm-prior/prior_seen_filings.json \
+              --out "$SSM_OUT"
+          else
+            # Manual full keeps the user's requested lookback; schedule/fallback full uses 7.
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "${{ inputs.mode }}" = full ]; then
+              SCAN_DAYS="$MANUAL_DAYS"
+            fi
+            python scripts/run_ssm.py scan --days "$SCAN_DAYS" --out "$SSM_OUT"
+          fi
+          echo "$SCAN_DAYS" > /tmp/ssm-scan-days
 
-      - name: Validate same-run outputs and generate run metadata
+      - name: Validate same-run outputs and record scan provenance
         shell: bash
-        env:
-          SCAN_DAYS: ${{ steps.settings.outputs.days }}
         run: |
           python scripts/verify_scan_outputs.py \
             --out "$SSM_OUT" \
             --run-id "$GITHUB_RUN_ID" \
             --commit "$GITHUB_SHA" \
             --trigger "$GITHUB_EVENT_NAME" \
-            --days "$SCAN_DAYS"
+            --days "$(cat /tmp/ssm-scan-days)"
 
-      - name: Upload dated scan reports (public repository artifact)
+      - name: Upload validated reports and checkpoint
         uses: actions/upload-artifact@v4
         with:
           name: ssm-sec-scan-${{ github.run_id }}

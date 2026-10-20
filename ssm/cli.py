@@ -56,6 +56,8 @@ def main():
     s.add_argument("--watchlist", default="config/watchlist.csv")
     s.add_argument("--overrides", default="config/overrides.json")
     s.add_argument("--out", default="output")
+    s.add_argument("--incremental-state", default=None,
+                   help="validated prior seen_filings.json (delta-only scope; not a full-market scan)")
 
     c = sub.add_parser("check")
     c.add_argument("tickers", nargs="+")
@@ -91,7 +93,11 @@ def main():
         return
 
     if a.cmd == "scan":
-        candidates, cfg = scan(a.days, a.config, a.watchlist, a.overrides)
+        if a.incremental_state:
+            candidates, cfg = scan(a.days, a.config, a.watchlist, a.overrides,
+                                   incremental_state_path=a.incremental_state)
+        else:
+            candidates, cfg = scan(a.days, a.config, a.watchlist, a.overrides)
     else:
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8", newline="") as f:
             w = csv.writer(f)

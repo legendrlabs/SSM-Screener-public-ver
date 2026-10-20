@@ -21,11 +21,13 @@
 
 - 수동/정기 워크플로: [SSM SEC Scan (Manual + Scheduled)](https://github.com/legendrlabs/SSM-Screener-public-ver/actions/workflows/sec-scan.yml)
 - 운영자는 Repository → Settings → Secrets and variables → Actions에 `SEC_USER_AGENT` **repository secret**을 설정해야 합니다. 유효한 ASCII 영문 이름/조직명과 연락 가능한 이메일을 사용하며, **코드·커밋·로그에 표시하지 않습니다.**
-- 정기 실행: **월~금 20:30 KST**, **화~토 07:30 KST** (UTC 11:30 및 22:30, 월~금). GitHub Actions 스케줄은 지연되거나 누락될 수 있습니다.
-- 수동 실행: Actions → SSM SEC Scan (Manual + Scheduled) → **Run workflow** → lookback 1/3/7/14/30일 선택(기본 7일).
+- 정기 실행: **월요일 20:30 KST 풀스캔**, **화~금 20:30 KST 증분**, **화~토 07:30 KST 증분**. SEC 접수번호 기반 체크포인트를 사용하며, 오래되거나 검증 실패 시 자동으로 7일 풀스캔으로 전환합니다. GitHub 스케줄은 지연되거나 누락될 수 있습니다.
+- 수동 실행: Actions → SSM SEC Scan (Manual + Scheduled) → **Run workflow** → `full`(기본) 또는 `incremental` 선택. 풀스캔 기간은 1/3/7/14/30일 중 선택(기본 7일)하고, 증분은 검증된 최근 체크포인트가 없으면 자동으로 7일 풀스캔으로 복귀합니다.
 - Python 3.11 + `requests`/`pandas`/`yfinance`; SEC discovery는 `atom`, 시장 데이터는 `yfinance`; 동일 워크플로의 출력 검증이 성공한 경우에만 완료로 판정합니다.
 - 결과는 실행별 `ssm-sec-scan-<run_id>` **GitHub Actions artifact**에 7일간 보관됩니다. 공개 저장소의 Actions 아티팩트는 외부 이용자가 접근할 수 있으므로, 개인 워치리스트·비공개 override·SEC 연락처를 결과에 포함시키지 않습니다.
-- 결과 파일은 `quality.json`, `latest.md`, `candidates.csv`, `dilution_check.csv`, `event_ledger.csv`, `validation_audit.json`, `run_metadata.json`입니다. `run_metadata.json`에 실행 번호·소스 커밋·실행 완료 시각·트리거가 저장됩니다.
+- **`FULL`과 `INCREMENTAL_DELTA`의 후보 수는 직접 비교하면 안 됩니다.** 증분 결과는 마지막 확인된 SEC 접수번호 이후의 신규 공시와 명시적 워치리스트 검사만 나타내며, 이전 PASS/WATCH 전체를 현재도 유효하다고 보증하지 않습니다. 증분 `latest.md`, `quality.json`, `run_metadata.json`에 검사 범위와 기준 실행 번호를 기록합니다.
+- 체크포인트는 과거 정상 실행의 `run_metadata.json` + `seen_filings.json`에서 복원합니다. **최근 성공 결과 36시간, 마지막 7일 이상 풀스캔 7일** 이내일 때만 증분을 허용하고, 누락·손상·조회 실패 시 즉시 전체 스캔으로 바꿉니다. 검사 실패는 PASS로 승격하지 않습니다.
+- 결과 파일은 `quality.json`, `latest.md`, `candidates.csv`, `dilution_check.csv`, `event_ledger.csv`, `validation_audit.json`, `run_metadata.json`, `seen_filings.json`입니다. `run_metadata.json`에 실행 번호·소스 커밋·실행 완료 시각·트리거가 저장됩니다.
 - `SAFE_TO_ACT=false`/PASS 0/DATA_HOLD는 **정상적으로 끝난 스캔의 분석 판정**일 수 있습니다. 실행 실패와 구분해야 합니다.
 - `output/`는 계속 비어 있으며 자동으로 커밋·푸시하지 않습니다. 따라서 `output/quality.json`을 과거 결과로 읽으면 안 됩니다. 새로운 결과는 **같은 실행의 artifact**에서만 읽습니다.
 - 배포 사용자들의 SEC 연락처·개인 포트폴리오·설정은 중앙으로 수집되지 않으며, 스킬 설치 후 개인 스캔은 각자의 런타임에서 실행합니다.
