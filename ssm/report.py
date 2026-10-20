@@ -103,6 +103,12 @@ def _terms(c):
 
 def write_outputs(candidates,cfg,out_dir):
     out=Path(out_dir); out.mkdir(parents=True,exist_ok=True)
+    scope = cfg.get("_scan_scope", "FULL")
+    seen = cfg.get("_seen_filings")
+    if seen is not None:
+        (out / "seen_filings.json").write_text(
+            json.dumps(seen, ensure_ascii=False, sort_keys=True) + "\\n", encoding="utf-8")
+
     flat=[]
     for c in candidates:
         d=c.to_dict(); dil=d.pop("dilution")
@@ -128,6 +134,10 @@ def write_outputs(candidates,cfg,out_dir):
     action_candidates=[c for c in candidates if c.bucket=="A_RESEARCH_NOW"]
     safe=bool(action_candidates) and all(_active_common(c) and c.gate_status=="PASS" and c.financial_review_complete and c.event_review_complete for c in action_candidates)
     q={"SAFE_TO_ACT":safe,"sec_discovery_mode":cfg.get("_sec_discovery_mode","unknown"),"candidate_count":len(candidates),"financial_review_incomplete_count":sum(not c.financial_review_complete for c in candidates),"data_hold_count":sum(c.gate_status=="DATA_HOLD" for c in candidates),"pass_count":sum(c.gate_status=="PASS" for c in candidates),"watch_count":sum(c.gate_status=="WATCH" for c in candidates),"reject_count":sum(c.gate_status=="REJECT" for c in candidates)}
+    q["scan_scope"] = scope
+    q["incremental_source_run_id"] = cfg.get("_incremental_source_run_id")
+    q["discovered_filing_count"] = cfg.get("_discovered_filing_count")
+    q["new_filing_count"] = cfg.get("_new_filing_count")
     q['excluded_count']=sum(c.gate_status=='EXCLUDED' for c in candidates)
     q['active_common_count']=sum(_active_common(c) for c in candidates)
     # Gate counts and presentation counts must agree. Scores rank candidates;
@@ -160,6 +170,15 @@ def write_outputs(candidates,cfg,out_dir):
     md=["# Special Situation Microcap — latest","",f"**SAFE_TO_ACT: {'TRUE' if safe else 'FALSE'}**",
         "",f"Gate totals: PASS {q['pass_count']} / WATCH {q['watch_count']} / DATA_HOLD {q['data_hold_count']}.",
         f"WATCH rows displayed: {len(watch)}; gate/bucket mismatches: {q['gate_bucket_mismatch_count']}.",""]
+    if scope == "INCREMENTAL_DELTA":
+        md += [
+            "","**INCREMENTAL DELTA ONLY — NOT A COMPLETE MARKET SNAPSHOT.**",
+            f"Prior checkpoint run: {cfg.get('_incremental_source_run_id') or 'unresolved'}.",
+            f"Newly discovered filings: {cfg.get('_new_filing_count')}; "
+            "historical candidates not automatically revalidated.",
+            "PASS/WATCH counts below include only issuers with newly discovered filings or explicit watchlist checks.",
+            ""
+        ]
     material=[c for c in candidates if _active_common(c) and (
         c.event_type in MERGER_KINDS | {'LIQUIDATION_DISTRIBUTION'} or
         (c.event_type == 'DEBT_RESTRUCTURING' and c.event_terms.get('materiality') == 'STRUCTURAL') or
