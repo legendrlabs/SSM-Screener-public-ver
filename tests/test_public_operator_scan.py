@@ -11,12 +11,16 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_operator_workflow_manual_and_kst_cron_and_read_only():
     source = (ROOT / ".github/workflows/sec-scan.yml").read_text(encoding="utf-8")
     assert "workflow_dispatch:" in source
-    assert "cron: '30 11 * * 1-5'" in source
+    assert "cron: '30 11 * * 1'" in source
+    assert "cron: '30 11 * * 2-5'" in source
     assert "cron: '30 22 * * 1-5'" in source
     assert "contents: read" in source
     assert "secrets.SEC_USER_AGENT" in source
     assert "SSM_SEC_DISCOVERY_MODE: atom" in source
-    assert "python scripts/run_ssm.py scan --days" in source
+    assert "scripts/run_ssm.py scan" in source
+    assert "scripts/scan_checkpoint.py" in source
+    assert "incremental-state" in source
+    assert "actions: read" in source
     assert "actions/upload-artifact@v4" in source
     assert "retention-days: 7" in source
     assert "persist-credentials: false" in source
