@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import urllib.request
+import urllib.error
 import zipfile
 
 WORKFLOW = "sec-scan.yml"
@@ -46,6 +47,10 @@ def verify_checkpoint(meta, seen, quality, run, now):
         raise ValueError("Full baseline too old")
     if seen.get("last_full_completed_at_utc") != meta.get("last_full_completed_at_utc"):
         raise ValueError("Checkpoint baseline identity mismatch")
+    if type(meta.get("last_full_lookback_days")) is not int or meta["last_full_lookback_days"] < 7:
+        raise ValueError("Full checkpoint does not cover at least seven days")
+    if seen.get("last_full_lookback_days") != meta["last_full_lookback_days"]:
+        raise ValueError("Checkpoint baseline lookback mismatch")
     return completed, last_full
 
 
@@ -63,7 +68,7 @@ def find_checkpoint(repo, token, now):
         "?status=success&branch=main&per_page=10", token))
     for run in runs.get("workflow_runs", []):
         # Only a completed scan from the same canonical repository/main.
-        if run.get("conclusion") != "success" or run.get("head_repository", {}).get("full_name", repo) != repo:
+        if run.get("conclusion") != "success" or (run.get("head_repository") or {}).get("full_name", repo) != repo:
             continue
         run_id = run["id"]
         arts = json.loads(api(f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=30", token))
