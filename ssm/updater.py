@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from io import BytesIO
 from importlib import metadata
+import json
+import time
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 from pathlib import Path
 import re
 import shutil
@@ -9,8 +14,6 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-
-import requests
 
 from .release_policy import SOURCE_COMMIT_RE, is_preserved_path, project_version, sha256_file
 
@@ -87,40 +90,73 @@ def validate_manifest(manifest: dict) -> dict:
     return manifest
 
 
-def fetch_release_manifest(timeout: float = 2.0) -> dict:
-    release_response = requests.get(LATEST_RELEASE_API, timeout=timeout)
-    release_response.raise_for_status()
-    release = release_response.json()
-    if not isinstance(release, dict):
-        raise ValueError("latest release metadata is not an object")
+def _fetch_json(url: str, timeout: float) -> dict:
+    """Read only small JSON metadata using stdlib, even in a bare skill runtime.
 
+    Retry transient network failures once. Never retry malformed data, a missing
+    release, or a failed manifest integrity/identity check.
+    """
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "SSM-Screener-release-check",
+        },
+    )
+    for attempt in range(2):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                payload = response.read(1_048_577)
+            if len(payload) > 1_048_576:
+                raise ValueError("release metadata exceeds 1 MiB limit")
+            result = json.loads(payload.decode("utf-8"))
+            if not isinstance(result, dict):
+                raise ValueError("release metadata must be a JSON object")
+            return result
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            retryable = not isinstance(exc, HTTPError) or exc.code in {
+                408, 429, 500, 502, 503, 504
+            }
+            if not retryable or attempt:
+                raise
+            time.sleep(0.4)
+    raise AssertionError("unreachable")
+
+
+def _release_asset_url(url: str) -> str:
+    parts = urlsplit(url)
+    if (parts.scheme != "https" or parts.netloc != "github.com"
+            or not parts.path.startswith(f"/{REPO}/releases/download/")
+            or not parts.path.endswith(f"/{MANIFEST_ASSET_NAME}")
+            or parts.username or parts.password or parts.query or parts.fragment):
+        raise ValueError("release.json download URL is not an official GitHub release asset")
+    return url
+
+
+def fetch_release_manifest(timeout: float = 8.0) -> dict:
+    release = _fetch_json(LATEST_RELEASE_API, timeout)
     assets = release.get("assets")
     if not isinstance(assets, list):
         raise ValueError("latest release has no asset list")
     asset = next(
         (
-            item
-            for item in assets
+            item for item in assets
             if isinstance(item, dict)
             and item.get("name") == MANIFEST_ASSET_NAME
             and isinstance(item.get("browser_download_url"), str)
-        ),
-        None,
+        ), None
     )
     if asset is None:
         raise ValueError("latest release does not contain release.json")
 
-    manifest_response = requests.get(asset["browser_download_url"], timeout=timeout)
-    manifest_response.raise_for_status()
-    manifest = validate_manifest(manifest_response.json())
-
+    manifest = validate_manifest(_fetch_json(_release_asset_url(asset["browser_download_url"]), timeout))
     tag_name = release.get("tag_name")
     if tag_name is not None and tag_name != manifest["tag"]:
         raise ValueError("release tag does not match release manifest tag")
     return manifest
 
 
-def latest_version(timeout: float = 2.0) -> str:
+def latest_version(timeout: float = 8.0) -> str:
     return fetch_release_manifest(timeout=timeout)["version"]
 
 
@@ -142,7 +178,7 @@ def version_status() -> dict:
         return {
             "current": current,
             "latest": None,
-            "update_available": False,
+            "update_available": None,
             "check_error": f"{type(exc).__name__}: {exc}",
         }
     return _status_from_manifest(manifest)
@@ -150,6 +186,12 @@ def version_status() -> dict:
 
 def maybe_update_notice(interactive: bool | None = None, input_fn=None) -> bool:
     status = version_status()
+    if status.get("check_error"):
+        print(
+            f"SSM update check unavailable; continuing with {status['current']} "
+            f"({status['check_error']}).", file=sys.stderr,
+        )
+        return False
     if not status.get("update_available"):
         return False
 
@@ -287,6 +329,7 @@ def _download_bundle(
     source_commit: str,
     timeout: float = 30.0,
 ) -> tuple[tempfile.TemporaryDirectory, Path, str]:
+    import requests  # Only an actual update download needs this dependency.
     url = immutable_archive_url(source_commit)
     response = requests.get(url, timeout=timeout)
     response.raise_for_status()

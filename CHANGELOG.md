@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.7 — 2026-10-21
+
+- `version`과 `--help`가 스크리닝 엔진과 외부 패키지를 선행 import하지 않도록 CLI 의존성 로딩 분리. `version --offline`은 네트워크/서드파티 패키지 없이 현재 설치 버전 확인.
+- GitHub Release manifest 확인을 Python 표준 라이브러리로 수행. 2초 타임아웃을 요청별 8초로 확장하고 일시적인 네트워크 오류에 한 번 제한적으로 재시도; 신뢰하지 않는 release asset URL 차단.
+- 업데이트 확인 실패 시 `latest=null`, `update_available=null`, `check_error` 구체 오류로 구분. 실패 시 스캔은 현재 설치 버전으로 계속하면서 stderr 안내.
+- `scripts/prepare_runtime.py --venv <writable-task-venv>`로 원본 스킬 외부의 격리된 환경에 의존성 준비·검증. SDK 설치나 SEC 스캔/개인 정보 전송은 자동으로 수행하지 않음.
+- Python `-S`(site-packages 제외) CLI smoke test, 네트워크 타임아웃·재시도·URL 검증 및 격리설치 경계 테스트 추가. 기존 immutable manifest / SHA-256 / 사용자 설정 보존 정책 유지.
+
+
 ## 1.1.5 — 2026-10-19
 
 - `SSM-Screener-public-ver`를 통합 개발·배포 기준으로 정리. 본체의 a9b7623 (2026-10-18) 엔진 변경을 v1.1.4의 업데이트·스킬 실행 구조에 반영.

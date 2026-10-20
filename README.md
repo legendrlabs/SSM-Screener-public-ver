@@ -1,8 +1,8 @@
-# Special Situation Microcap Screener (SSM) v1.1.6
+# Special Situation Microcap Screener (SSM) v1.1.7
 
 미국 상장 마이크로캡 중 **구조적 재평가 가능성이 있는 특수상황**을 재현 가능한 규칙으로 1차 선별하는 스크리너입니다.
 
-이 저장소는 배포·업데이트 전용이며, **v1.1.6은 사용자별 SEC 연락처 설정 정책을 명확히 하고 중앙 스캔/결과 게시를 제거한 릴리스**입니다. 스크리닝 엔진의 판정 규칙은 v1.1.5를 유지합니다. v1.1.5는 `SSM-Screener`의 2026-10-18 판정 엔진 변경과 기존 공개 배포본의 설치·업데이트 기능을 합쳤습니다. 기존 v1.1.2 이상 사용자는 `ssm update` 경로를 유지합니다. 원본 운영 저장소의 개인 설정·실행 결과는 옮기지 않았습니다. [통합 내역과 검증 범위](docs/integration/2026-10-19-unification.md)를 참고하세요.
+이 저장소는 배포·업데이트 전용입니다. **v1.1.7은 Work/Codex처럼 기본 Python 의존성이 없는 환경을 위한 CLI 경량화·격리 실행환경 준비·업데이트 조회 안정화 릴리스**입니다. v1.1.6은 사용자별 SEC 연락처 설정 정책을 명확히 하고 중앙 스캔/결과 게시를 제거한 릴리스입니다. 스크리닝 엔진의 판정 규칙은 v1.1.5를 유지합니다. v1.1.5는 `SSM-Screener`의 2026-10-18 판정 엔진 변경과 기존 공개 배포본의 설치·업데이트 기능을 합쳤습니다. 기존 v1.1.2 이상 사용자는 `ssm update` 경로를 유지합니다. 원본 운영 저장소의 개인 설정·실행 결과는 옮기지 않았습니다. [통합 내역과 검증 범위](docs/integration/2026-10-19-unification.md)를 참고하세요.
 
 수정·완료 판단은 [v1 안정화 기준](docs/stabilization-policy.md)을 따릅니다. 실전 영향이 있는 오류를 공통 원인 단위로 수정하고, 영향이 없는 세부 표현 차이는 예외 패치 없이 남깁니다.
 
@@ -41,6 +41,22 @@
 - `SSM으로 LFCR을 점검하고 SEC 원문 링크도 보여줘.`
 
 첫 실제 실행에서 SEC 접속용 이름·이메일 설정을 요청할 수 있습니다. 설치만으로 실제 스캔이 완료되는 것은 아니며, 실행 환경의 Python·네트워크 접근이 필요합니다. ChatGPT/Codex의 설치 기능과 사용 가능 도구는 계정·환경에 따라 다릅니다. 지원되는 환경에서 저장소 전체를 스킬 폴더로 설치해야 합니다.
+
+기본 Python에 `requests`/`pandas`/`yfinance`가 없어도 아래 두 명령은 실행됩니다.
+
+```bash
+python "<SKILL_DIR>/scripts/run_ssm.py" --help
+python "<SKILL_DIR>/scripts/run_ssm.py" version --offline
+```
+
+`version`(오프라인 옵션 없음)은 온라인 최신 릴리스를 확인합니다. 네트워크 조회에 실패하면 `update_available=null`과 `check_error`가 반환되며, 이는 최신 버전이라는 뜻이 아닙니다. 기본 Python에 스캔 의존성이 없는 경우 격리 설치 예시는 다음과 같습니다.
+
+```bash
+python "<SKILL_DIR>/scripts/prepare_runtime.py" --venv "<TASK_DIR>/.ssm-venv"
+"<TASK_DIR>/.ssm-venv/bin/python" "<SKILL_DIR>/scripts/run_ssm.py" --help
+```
+
+Windows에서는 가상환경 Python 경로가 `Scripts/python.exe`입니다. `TASK_DIR`은 쓸 수 있는 별도의 작업 디렉터리이며 `SKILL_DIR` 안에 가상환경을 만들지 않습니다. `prepare_runtime.py`는 실행 의존성만 설치하고 SEC 스캔이나 스킬 등록/업데이트를 수행하지 않습니다. 설치에 필요한 PyPI 네트워크 또는 권한이 없으면 명시적으로 실패를 보고합니다.
 
 실행 진입점은 `scripts/run_ssm.py`입니다. 스킬 설치 폴더와 채팅 작업 폴더가 달라도 동봉 설정을 찾으며, 결과는 지정한 작업 폴더에 저장합니다.
 
