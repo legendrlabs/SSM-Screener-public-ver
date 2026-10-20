@@ -107,7 +107,7 @@ def write_outputs(candidates,cfg,out_dir):
     seen = cfg.get("_seen_filings")
     if seen is not None:
         (out / "seen_filings.json").write_text(
-            json.dumps(seen, ensure_ascii=False, sort_keys=True) + "\\n", encoding="utf-8")
+            json.dumps(seen, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
     flat=[]
     for c in candidates:
