@@ -46,7 +46,7 @@ def test_full_then_incremental_filters_previously_scanned_accessions(tmp_path, m
                                   gate_status="DATA_HOLD", bucket="DATA_HOLD",
                                   dilution=Dilution(confidence="low")))
     cfg = tmp_path / "config.json"
-    cfg.write_text(json.dumps({"event_forms": ["8-K"], "exchanges": ["Nasdaq"]}))
+    cfg.write_text(json.dumps({"event_forms": ["8-K"], "exchanges": ["Nasdaq"], "material_8k_items": ["1.01"]}))
     full, details = pipeline.scan(7, str(cfg), str(tmp_path / "empty.csv"), str(tmp_path / "override.json"))
     assert len(full) == 1
     assert details["_scan_scope"] == "FULL"
