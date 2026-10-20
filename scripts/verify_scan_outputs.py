@@ -60,16 +60,23 @@ def verify(out: Path, *, run_id: str, commit: str, trigger: str, days: int) -> d
             if "INCREMENTAL DELTA ONLY" not in report:
                 raise ValueError("Delta report must identify incomplete market coverage")
             last_full = seen["last_full_completed_at_utc"]
+            full_days = seen.get("last_full_lookback_days")
+            if not isinstance(full_days, int) or full_days < 7:
+                raise ValueError("Incremental checkpoint lacks a seven-day full baseline")
         else:
             last_full = completed_at_utc
+            full_days = days
         seen["run_id"] = str(run_id)
         seen["last_full_completed_at_utc"] = last_full
+        seen["last_full_lookback_days"] = full_days
         seen_file.write_text(json.dumps(seen, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
     else:
         last_full = completed_at_utc
+        full_days = days
     metadata = {
         "scan_scope": scope,
         "last_full_completed_at_utc": last_full,
+        "last_full_lookback_days": full_days,
         "checkpoint_source_run_id": quality.get("incremental_source_run_id"),
         "new_filing_count": quality.get("new_filing_count"),
         "discovered_filing_count": quality.get("discovered_filing_count"),
