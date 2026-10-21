@@ -47,8 +47,10 @@ def plan_scan(baseline: Path, *, expected_run_id: str, requested_mode: str,
         quality = json.loads((baseline / "quality.json").read_text(encoding="utf-8"))
         if (not expected_run_id or meta["run_id"] != str(expected_run_id)
                 or meta["scan_status"] != "SUCCESS"
+                or meta.get("scan_mode") not in ("full", "incremental")
                 or type(quality["candidate_count"]) is not int
-                or type(quality["SAFE_TO_ACT"]) is not bool):
+                or type(quality["SAFE_TO_ACT"]) is not bool
+                or quality["candidate_count"] < 0):
             raise ValueError("Untrusted baseline")
         completed = utc_time(meta["completed_at_utc"])
         age = now - completed
@@ -65,7 +67,9 @@ def plan_scan(baseline: Path, *, expected_run_id: str, requested_mode: str,
             raise ValueError("Full-scan anchor expired")
         with (baseline / "candidates.csv").open(encoding="utf-8-sig", newline="") as f:
             candidates = list(csv.DictReader(f))
-        if len(candidates) != quality["candidate_count"]:
+        if (len(candidates) != quality["candidate_count"]
+                or any(not row.get("ticker") or not row.get("gate_status") for row in candidates)
+                or len({row["ticker"] for row in candidates}) != len(candidates)) :
             raise ValueError("Baseline candidate count mismatch")
         # Two calendar days of overlap, never less than three days total.
         days = max(3, min(7, math.ceil(age.total_seconds() / 86400) + 2))
