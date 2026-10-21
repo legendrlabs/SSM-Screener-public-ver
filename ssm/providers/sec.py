@@ -86,7 +86,7 @@ class SecClient:
             raise RuntimeError(f"SEC daily-index missing expected header: {day}")
         out = []
         for line in lines[start:]:
-            if not line.strip():
+            if not line.strip() or set(line.strip()) == {"-"}:
                 continue
             p = line.split("|")
             if len(p) != 5:
