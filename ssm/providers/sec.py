@@ -66,26 +66,43 @@ class SecClient:
         url = f"{SEC_BASE}/Archives/edgar/daily-index/{day.year}/QTR{q}/master.{day:%Y%m%d}.idx"
         try:
             txt = self._get(url).text
-        except requests.HTTPError as e:
-            if e.response is not None and e.response.status_code == 404:
-                return []
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                # Weekends have no daily index. A missing weekday may be a
+                # holiday or a not-yet-published index: never silently certify
+                # complete discovery for that day.
+                if day.weekday() >= 5:
+                    return []
+                raise RuntimeError(
+                    f"SEC daily-index unavailable for weekday {day}; "
+                    "lookback completeness unverified"
+                ) from exc
             raise
         lines = txt.splitlines()
-        start = 0
-        for i, line in enumerate(lines):
-            if line.startswith("CIK|Company Name|Form Type|Date Filed|Filename"):
-                start = i + 1
-                break
+        header = "CIK|Company Name|Form Type|Date Filed|Filename"
+        start = next((i + 1 for i, line in enumerate(lines)
+                      if line.strip() == header), None)
+        if start is None:
+            raise RuntimeError(f"SEC daily-index missing expected header: {day}")
         out = []
         for line in lines[start:]:
-            if "|" not in line:
+            if not line.strip():
                 continue
             p = line.split("|")
-            if len(p) == 5:
-                out.append({
-                    "cik": p[0], "company": p[1], "form": p[2],
-                    "filed": p[3], "filename": p[4], "source": "daily-index",
-                })
+            if len(p) != 5:
+                raise RuntimeError(f"SEC daily-index malformed row: {day}")
+            try:
+                filed = dt.date.fromisoformat(p[3])
+                int(p[0])
+            except (ValueError, TypeError) as exc:
+                raise RuntimeError(f"SEC daily-index invalid filing row: {day}") from exc
+            if filed != day or not p[2].strip() or not p[4].strip():
+                raise RuntimeError(f"SEC daily-index inconsistent filing row: {day}")
+            out.append({
+                "cik": p[0], "company": p[1], "form": p[2],
+                "filed": p[3], "filename": p[4], "source": "daily-index",
+            })
+        LOG.warning("SEC daily-index verified: day=%s rows=%d", day, len(out))
         return out
 
     def _daily_recent_filings(self, days, forms):
@@ -93,10 +110,16 @@ class SecClient:
         today = dt.date.today()
         rows = []
         for i in range(days + 1):
-            for row in self.daily_master_index(today - dt.timedelta(days=i)):
+            day = today - dt.timedelta(days=i)
+            # Today's index may not exist until the nightly SEC build.
+            # A scan cannot certify today's completeness from a daily index.
+            if day == today:
+                LOG.warning("SEC daily-index current-day not yet final: %s", day)
+                continue
+            for row in self.daily_master_index(day):
                 if row["form"] in forms:
                     rows.append(row)
-        self.last_discovery_mode = "daily-index"
+        self.last_discovery_mode = "daily-index-prior-days"
         return rows
 
     @staticmethod
