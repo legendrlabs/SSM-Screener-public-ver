@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, re, time, datetime as dt, html
+import os, re, time, datetime as dt, html, logging
 import urllib.parse
 import xml.etree.ElementTree as ET
 import requests
@@ -7,6 +7,7 @@ import requests
 SEC_BASE = "https://www.sec.gov"
 SEC_DATA_BASE = "https://data.sec.gov"
 ATOM_NS = {"a": "http://www.w3.org/2005/Atom"}
+LOG = logging.getLogger(__name__)
 
 class SecClient:
     def __init__(self, user_agent=None, pause=.20, max_retries=3):
@@ -143,9 +144,9 @@ class SecClient:
                     raise RuntimeError("SEC Atom response could not be parsed; discovery incomplete") from exc
                 entries = root.findall("a:entry", ATOM_NS)
                 if not entries:
-                    if page == 0:
-                        raise RuntimeError("SEC Atom returned no entries; discovery completeness unverified")
-                    break
+                    raise RuntimeError(
+                        f"SEC Atom empty page without cutoff evidence: form={form} page={page} cutoff={cutoff}"
+                    )
                 oldest = None
                 for entry in entries:
                     filed = self._atom_entry_date(entry)
@@ -184,12 +185,20 @@ class SecClient:
                         "accession": accession,
                         "source": "atom",
                     })
+                LOG.warning("SEC Atom page: form=%s page=%d entries=%d oldest=%s cutoff=%s",
+                            form, page, len(entries), oldest, cutoff)
                 # A short page alone does not prove coverage of the requested
                 # lookback. Require an observed filing older than the cutoff.
                 if oldest is not None and oldest < cutoff:
                     break
                 if len(entries) < count:
-                    raise RuntimeError("SEC Atom ended before lookback coverage was verified")
+                    # A complete short page is the end of the available feed.
+                    # No older filing exists in this listing to prove the cutoff,
+                    # so fail closed rather than silently treating it as coverage.
+                    raise RuntimeError(
+                        f"SEC Atom short page without cutoff evidence: form={form} "
+                        f"page={page} entries={len(entries)} oldest={oldest} cutoff={cutoff}"
+                    )
             else:
                 raise RuntimeError("SEC Atom pagination limit reached before lookback coverage confirmed")
         self.last_discovery_mode = "atom"
