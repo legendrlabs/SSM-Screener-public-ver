@@ -184,8 +184,12 @@ class SecClient:
                         "accession": accession,
                         "source": "atom",
                     })
-                if len(entries) < count or (oldest is not None and oldest < cutoff):
+                # A short page alone does not prove coverage of the requested
+                # lookback. Require an observed filing older than the cutoff.
+                if oldest is not None and oldest < cutoff:
                     break
+                if len(entries) < count:
+                    raise RuntimeError("SEC Atom ended before lookback coverage was verified")
             else:
                 raise RuntimeError("SEC Atom pagination limit reached before lookback coverage confirmed")
         self.last_discovery_mode = "atom"
