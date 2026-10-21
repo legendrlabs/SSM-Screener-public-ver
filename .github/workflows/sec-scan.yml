@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 60
     env:
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
-      SSM_SEC_DISCOVERY_MODE: atom
+      SSM_SEC_DISCOVERY_MODE: daily-index
       SSM_MARKET_PROVIDER: yfinance
       SSM_OUT: /tmp/ssm-output
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
