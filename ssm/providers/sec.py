@@ -66,7 +66,28 @@ class SecClient:
         url = f"{SEC_BASE}/Archives/edgar/daily-index/{day.year}/QTR{q}/master.{day:%Y%m%d}.idx"
         try:
             response = self._get(url)
-            txt = response.text
+            raw = response.content
+            # SEC .idx responses can arrive as application/octet-stream with
+            # UTF-16 encoded content. requests.text may silently decode NULs
+            # as Latin-1 and make the valid header impossible to match.
+            if raw.startswith((b"\\xff\\xfe", b"\\xfe\\xff")):
+                txt = raw.decode("utf-16")
+                encoding = "utf-16-bom"
+            elif len(raw) >= 8 and raw[:128].count(b"\\x00") >= 8:
+                even_nuls = raw[:128:2].count(0)
+                odd_nuls = raw[1:128:2].count(0)
+                if odd_nuls > even_nuls * 3:
+                    txt = raw.decode("utf-16-le")
+                    encoding = "utf-16-le"
+                elif even_nuls > odd_nuls * 3:
+                    txt = raw.decode("utf-16-be")
+                    encoding = "utf-16-be"
+                else:
+                    raise RuntimeError(f"SEC daily-index ambiguous UTF-16 encoding: {day}")
+            else:
+                txt = raw.decode("utf-8-sig")
+                encoding = "utf-8"
+            LOG.warning("SEC daily-index decoded: day=%s encoding=%s", day, encoding)
             LOG.warning("SEC daily-index response: day=%s status=%s content_type=%s bytes=%d",
                         day, response.status_code, response.headers.get("Content-Type", ""),
                         len(response.content))
