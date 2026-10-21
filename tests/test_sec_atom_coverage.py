@@ -37,7 +37,7 @@ def test_atom_rejects_malformed_xml(monkeypatch):
 
 def test_atom_rejects_empty_first_page(monkeypatch):
     client, _ = _client(monkeypatch, [_feed([])])
-    with pytest.raises(RuntimeError, match="no entries"):
+    with pytest.raises(RuntimeError, match="empty page"):
         client.atom_recent_filings(7, ["8-K"])
 
 
