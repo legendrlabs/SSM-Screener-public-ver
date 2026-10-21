@@ -106,7 +106,7 @@ class SecClient:
         for line in lines[start:]:
             if not line.strip() or set(line.strip()) == {"-"}:
                 continue
-            p = line.split("|")
+            p = [part.strip() for part in line.split("|")]
             if len(p) != 5:
                 raise RuntimeError(f"SEC daily-index malformed row: {day}")
             try:
