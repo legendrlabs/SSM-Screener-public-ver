@@ -44,7 +44,7 @@ def test_atom_rejects_empty_first_page(monkeypatch):
 def test_atom_rejects_short_page_without_cutoff_evidence(monkeypatch):
     today = date.today().isoformat()
     client, _ = _client(monkeypatch, [_feed([today])])
-    with pytest.raises(RuntimeError, match="coverage"):
+    with pytest.raises(RuntimeError, match="cutoff evidence"):
         client.atom_recent_filings(7, ["8-K"], count=100)
 
 
