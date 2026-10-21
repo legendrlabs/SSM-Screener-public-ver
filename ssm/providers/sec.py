@@ -65,7 +65,11 @@ class SecClient:
         q = (day.month - 1) // 3 + 1
         url = f"{SEC_BASE}/Archives/edgar/daily-index/{day.year}/QTR{q}/master.{day:%Y%m%d}.idx"
         try:
-            txt = self._get(url).text
+            response = self._get(url)
+            txt = response.text
+            LOG.warning("SEC daily-index response: day=%s status=%s content_type=%s bytes=%d",
+                        day, response.status_code, response.headers.get("Content-Type", ""),
+                        len(response.content))
         except requests.HTTPError as exc:
             if exc.response is not None and exc.response.status_code == 404:
                 # Weekends have no daily index. A missing weekday may be a
@@ -80,10 +84,24 @@ class SecClient:
             raise
         lines = txt.splitlines()
         header = "CIK|Company Name|Form Type|Date Filed|Filename"
+        def normalized_header(line):
+            return "|".join(part.strip().lower() for part in line.split("|"))
+
         start = next((i + 1 for i, line in enumerate(lines)
-                      if line.strip() == header), None)
+                      if normalized_header(line) == normalized_header(header)), None)
         if start is None:
-            raise RuntimeError(f"SEC daily-index missing expected header: {day}")
+            # Do not print arbitrary response bodies (may contain unexpected
+            # upstream content); report only safe structural indicators.
+            prefix = txt[:512].lstrip().lower()
+            kind = ("html" if prefix.startswith(("<!doctype html", "<html"))
+                    else "json" if prefix.startswith(("{", "["))
+                    else "empty" if not txt.strip() else "unrecognized")
+            raise RuntimeError(
+                f"SEC daily-index missing expected header: day={day} "
+                f"status={response.status_code} content_type="
+                f"{response.headers.get('Content-Type', '')} bytes={len(response.content)} "
+                f"body_kind={kind}"
+            )
         out = []
         for line in lines[start:]:
             if not line.strip() or set(line.strip()) == {"-"}:
