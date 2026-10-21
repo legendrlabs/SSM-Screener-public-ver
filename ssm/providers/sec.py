@@ -139,18 +139,20 @@ class SecClient:
                 xml_text = self._get(url).text
                 try:
                     root = ET.fromstring(xml_text)
-                except ET.ParseError:
-                    break
+                except ET.ParseError as exc:
+                    raise RuntimeError("SEC Atom response could not be parsed; discovery incomplete") from exc
                 entries = root.findall("a:entry", ATOM_NS)
                 if not entries:
+                    if page == 0:
+                        raise RuntimeError("SEC Atom returned no entries; discovery completeness unverified")
                     break
                 oldest = None
                 for entry in entries:
                     filed = self._atom_entry_date(entry)
                     try:
                         filed_date = dt.date.fromisoformat(filed)
-                    except Exception:
-                        continue
+                    except (ValueError, TypeError) as exc:
+                        raise RuntimeError("SEC Atom filing date missing or invalid") from exc
                     oldest = filed_date if oldest is None or filed_date < oldest else oldest
                     if filed_date < cutoff:
                         continue
@@ -162,7 +164,7 @@ class SecClient:
                         cik_m = re.search(r"\((\d{6,10})\)", title)
                     acc_m = re.search(r"(\d{10}-\d{2}-\d{6})", link + " " + summary)
                     if not cik_m:
-                        continue
+                        raise RuntimeError("SEC Atom entry missing CIK; discovery incomplete")
                     cik = str(int(cik_m.group(1)))
                     accession = acc_m.group(1) if acc_m else ""
                     key = (cik, accession or link, form)
@@ -184,6 +186,8 @@ class SecClient:
                     })
                 if len(entries) < count or (oldest is not None and oldest < cutoff):
                     break
+            else:
+                raise RuntimeError("SEC Atom pagination limit reached before lookback coverage confirmed")
         self.last_discovery_mode = "atom"
         return rows
 
