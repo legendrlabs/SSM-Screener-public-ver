@@ -43,3 +43,15 @@ def test_reject_truncated_row(monkeypatch):
     client = client_with_response(monkeypatch, HEADER + "\n1234567|Test")
     with pytest.raises(RuntimeError, match="malformed"):
         client.daily_master_index(DAY)
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be", "utf-8-sig"])
+def test_index_byte_decoding(monkeypatch, encoding):
+    body = HEADER + "\\n" + ROW + "\\n"
+    raw = body.encode(encoding)
+    client = object.__new__(SecClient)
+    response = SimpleNamespace(
+        content=raw, text=raw.decode("latin-1"),
+        status_code=200, headers={"Content-Type": "application/octet-stream"},
+    )
+    monkeypatch.setattr(client, "_get", lambda url: response)
+    assert len(client.daily_master_index(DAY)) == 1
