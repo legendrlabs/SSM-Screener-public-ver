@@ -85,7 +85,7 @@ class SecClient:
         lines = txt.splitlines()
         header = "CIK|Company Name|Form Type|Date Filed|Filename"
         def normalized_header(line):
-            return "|".join(part.strip().lower() for part in line.split("|"))
+            return "|".join(part.strip().lower() for part in line.lstrip("\ufeff").split("|"))
 
         start = next((i + 1 for i, line in enumerate(lines)
                       if normalized_header(line) == normalized_header(header)), None)
@@ -96,6 +96,11 @@ class SecClient:
             kind = ("html" if prefix.startswith(("<!doctype html", "<html"))
                     else "json" if prefix.startswith(("{", "["))
                     else "empty" if not txt.strip() else "unrecognized")
+            # Restrict the diagnostic sample to printable ASCII and mask
+            # any email-like tokens before exposing upstream text in CI.
+            sample = re.sub(r"[^\\x20-\\x7e]", " ", txt[:300])
+            sample = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "[redacted-email]", sample)
+            LOG.warning("SEC daily-index header diagnostic: day=%s prefix=%r", day, sample[:180])
             raise RuntimeError(
                 f"SEC daily-index missing expected header: day={day} "
                 f"status={response.status_code} content_type="
