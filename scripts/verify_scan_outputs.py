@@ -43,6 +43,9 @@ def verify(out: Path, *, run_id: str, commit: str, trigger: str, days: int) -> d
         raise ValueError("WATCH report disagrees with quality.json")
     metadata = {
         "scan_status": "SUCCESS",
+        "scan_mode": "full",
+        "last_full_run_id": str(run_id),
+        "last_full_completed_at_utc": None,
         "run_id": str(run_id),
         "source_commit": commit,
         "trigger": trigger,
@@ -51,6 +54,7 @@ def verify(out: Path, *, run_id: str, commit: str, trigger: str, days: int) -> d
         "SAFE_TO_ACT": quality["SAFE_TO_ACT"],
         **{k: quality[k] for k in (*CATEGORIES, "candidate_count")},
     }
+    metadata["last_full_completed_at_utc"] = metadata["completed_at_utc"]
     (out / "run_metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
