@@ -9,6 +9,50 @@ SEC_DATA_BASE = "https://data.sec.gov"
 ATOM_NS = {"a": "http://www.w3.org/2005/Atom"}
 LOG = logging.getLogger(__name__)
 
+def _observed_us_holiday(year, month, day):
+    actual = dt.date(year, month, day)
+    if actual.weekday() == 5:
+        return actual - dt.timedelta(days=1)
+    if actual.weekday() == 6:
+        return actual + dt.timedelta(days=1)
+    return actual
+
+
+def _nth_weekday(year, month, weekday, nth):
+    first = dt.date(year, month, 1)
+    return first + dt.timedelta(days=(weekday - first.weekday()) % 7 + 7 * (nth - 1))
+
+
+def _last_weekday(year, month, weekday):
+    if month == 12:
+        last = dt.date(year + 1, 1, 1) - dt.timedelta(days=1)
+    else:
+        last = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
+    return last - dt.timedelta(days=(last.weekday() - weekday) % 7)
+
+
+def _us_federal_holiday(day):
+    # Federal closure candidates, not a substitute for an official SEC
+    # emergency-closure calendar. Only a missing index (404) may be skipped.
+    for year in (day.year - 1, day.year, day.year + 1):
+        holidays = {
+            _observed_us_holiday(year, 1, 1),
+            _nth_weekday(year, 1, 0, 3),
+            _nth_weekday(year, 2, 0, 3),
+            _last_weekday(year, 5, 0),
+            _observed_us_holiday(year, 6, 19),
+            _observed_us_holiday(year, 7, 4),
+            _nth_weekday(year, 9, 0, 1),
+            _nth_weekday(year, 10, 0, 2),
+            _observed_us_holiday(year, 11, 11),
+            _nth_weekday(year, 11, 3, 4),
+            _observed_us_holiday(year, 12, 25),
+        }
+        if day in holidays:
+            return True
+    return False
+
+
 class SecClient:
     def __init__(self, user_agent=None, pause=.20, max_retries=3):
         raw_user_agent = user_agent or os.getenv("SEC_USER_AGENT", "")
@@ -96,7 +140,8 @@ class SecClient:
                 # Weekends have no daily index. A missing weekday may be a
                 # holiday or a not-yet-published index: never silently certify
                 # complete discovery for that day.
-                if day.weekday() >= 5:
+                if day.weekday() >= 5 or _us_federal_holiday(day):
+                    LOG.warning("SEC daily-index absent on weekend/federal holiday: %s", day)
                     return []
                 raise RuntimeError(
                     f"SEC daily-index unavailable for weekday {day}; "
