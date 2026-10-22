@@ -78,3 +78,62 @@ def test_future_filing_date_rejected(monkeypatch):
     client = client_with_response(monkeypatch, body)
     with pytest.raises(RuntimeError, match="inconsistent"):
         client.daily_master_index(DAY)
+
+# SEC federal closures are not identical to exchange holidays. Only a 404
+# for a verified federal holiday/weekend can be treated as an absent index.
+import requests
+from ssm.providers.sec import _us_federal_holiday
+
+
+def _client_raising_http(monkeypatch, status):
+    client = object.__new__(SecClient)
+    response = requests.Response()
+    response.status_code = status
+
+    def fail(_url):
+        raise requests.HTTPError(f"HTTP {status}", response=response)
+
+    monkeypatch.setattr(client, "_get", fail)
+    return client
+
+
+@pytest.mark.parametrize("day", [
+    dt.date(2026, 1, 1),   # New Year's Day
+    dt.date(2026, 1, 19),  # MLK Day
+    dt.date(2026, 5, 25),  # Memorial Day
+    dt.date(2026, 6, 19),  # Juneteenth
+    dt.date(2026, 7, 3),   # Independence Day observed
+    dt.date(2026, 9, 7),   # Labor Day
+    dt.date(2026, 10, 12), # Columbus Day
+    dt.date(2026, 11, 11), # Veterans Day
+    dt.date(2026, 11, 26), # Thanksgiving
+    dt.date(2026, 12, 25), # Christmas
+    dt.date(2027, 12, 31), # New Year's 2028 observed in previous year
+])
+def test_federal_holiday_404_can_be_skipped(monkeypatch, day):
+    assert _us_federal_holiday(day)
+    assert _client_raising_http(monkeypatch, 404).daily_master_index(day) == []
+
+
+def test_weekend_404_can_be_skipped(monkeypatch):
+    assert _client_raising_http(monkeypatch, 404).daily_master_index(dt.date(2026, 10, 18)) == []
+
+
+@pytest.mark.parametrize("day", [
+    dt.date(2026, 10, 21), # ordinary Wednesday
+    dt.date(2026, 4, 3),   # Good Friday: exchange holiday != federal holiday
+])
+def test_non_federal_weekday_404_is_data_hold(monkeypatch, day):
+    assert not _us_federal_holiday(day)
+    with pytest.raises(RuntimeError, match="lookback completeness unverified"):
+        _client_raising_http(monkeypatch, 404).daily_master_index(day)
+
+
+@pytest.mark.parametrize("day", [
+    dt.date(2026, 10, 18), # Sunday
+    dt.date(2026, 11, 26), # Thanksgiving
+    dt.date(2026, 10, 21), # ordinary weekday
+])
+def test_http_403_never_silently_skipped(monkeypatch, day):
+    with pytest.raises(requests.HTTPError):
+        _client_raising_http(monkeypatch, 403).daily_master_index(day)
