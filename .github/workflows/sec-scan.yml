@@ -77,7 +77,7 @@ jobs:
       - name: Run SEC discovery regression tests
         run: |
           python -m pip install pytest
-          python -m pytest -q tests/test_sec_atom_coverage.py tests/test_sec_daily_index.py
+          python -m pytest -q tests/test_sec_atom_coverage.py tests/test_sec_daily_index.py tests/test_data_hold_triage.py
 
       - name: Verify bundled CLI without third-party imports
         run: |
