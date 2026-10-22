@@ -117,11 +117,16 @@ class SecClient:
             kind = ("html" if prefix.startswith(("<!doctype html", "<html"))
                     else "json" if prefix.startswith(("{", "["))
                     else "empty" if not txt.strip() else "unrecognized")
-            # Restrict the diagnostic sample to printable ASCII and mask
-            # any email-like tokens before exposing upstream text in CI.
-            sample = re.sub(r"[^\\x20-\\x7e]", " ", txt[:300])
-            sample = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "[redacted-email]", sample)
-            LOG.warning("SEC daily-index header diagnostic: day=%s prefix=%r", day, sample[:180])
+            # Show the structural header candidates without dumping filing rows.
+            # Use repr() to preserve whitespace and control-character clues.
+            header_candidates = [
+                (i, line[:150]) for i, line in enumerate(lines[:30])
+                if "|" in line or "CIK" in line.upper() or "FORM" in line.upper()
+            ]
+            LOG.warning("SEC daily-index header candidates: day=%s lines=%r",
+                        day, header_candidates[:8])
+            LOG.warning("SEC daily-index first lines: day=%s lines=%r",
+                        day, [line[:100] for line in lines[:12]])
             raise RuntimeError(
                 f"SEC daily-index missing expected header: day={day} "
                 f"status={response.status_code} content_type="
