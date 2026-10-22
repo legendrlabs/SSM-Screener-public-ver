@@ -154,8 +154,6 @@ class SecClient:
                     f"filed={p[3]!r} parsed_date={filed} "
                     f"form_present={bool(p[2])} filename_present={bool(p[4])}"
                 )
-            if filed < day:
-                LOG.warning("SEC daily-index prior-date filing: index_day=%s filed=%s cik=%s", day, filed, p[0])
             out.append({
                 "cik": p[0], "company": p[1], "form": p[2],
                 "filed": filed.isoformat(), "filename": p[4], "source": "daily-index",
@@ -173,6 +171,9 @@ class SecClient:
             # A scan cannot certify today's completeness from a daily index.
             if day == today:
                 LOG.warning("SEC daily-index current-day not yet final: %s", day)
+                continue
+            if day.weekday() >= 5:
+                LOG.warning("SEC daily-index weekend skipped: %s", day)
                 continue
             for row in self.daily_master_index(day):
                 if row["form"] in forms:
