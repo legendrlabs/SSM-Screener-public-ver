@@ -34,10 +34,9 @@ def test_reject_unrecognized_body(monkeypatch, body):
     with pytest.raises(RuntimeError, match="missing expected header"):
         client.daily_master_index(DAY)
 
-def test_reject_invalid_date(monkeypatch):
+def test_accept_prior_filing_date(monkeypatch):
     client = client_with_response(monkeypatch, HEADER + "\n" + ROW.replace("2026-10-20", "2026-10-19"))
-    with pytest.raises(RuntimeError, match="inconsistent"):
-        client.daily_master_index(DAY)
+    assert client.daily_master_index(DAY)[0]["filed"] == "2026-10-19"
 
 def test_reject_truncated_row(monkeypatch):
     client = client_with_response(monkeypatch, HEADER + "\n1234567|Test")
@@ -66,3 +65,16 @@ def test_real_sec_daily_index_format(monkeypatch):
     assert len(filings) == 1
     assert filings[0]["filed"] == "2026-10-21"
     assert filings[0]["filename"].endswith("0001193125-26-427818.txt")
+
+def test_prior_day_filing_in_later_dissemination_index(monkeypatch):
+    body = HEADER + "\n" + ROW.replace("2026-10-20", "2026-10-19") + "\n"
+    client = client_with_response(monkeypatch, body)
+    rows = client.daily_master_index(DAY)
+    assert len(rows) == 1
+    assert rows[0]["filed"] == "2026-10-19"
+
+def test_future_filing_date_rejected(monkeypatch):
+    body = HEADER + "\n" + ROW.replace("2026-10-20", "2026-10-21") + "\n"
+    client = client_with_response(monkeypatch, body)
+    with pytest.raises(RuntimeError, match="inconsistent"):
+        client.daily_master_index(DAY)
