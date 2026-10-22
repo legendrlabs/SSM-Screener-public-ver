@@ -106,7 +106,7 @@ class SecClient:
         lines = txt.splitlines()
         header = "CIK|Company Name|Form Type|Date Filed|Filename"
         def normalized_header(line):
-            return "|".join(part.strip().lower() for part in line.lstrip("\ufeff").split("|"))
+            return "|".join(part.strip().lower().replace(" ", "") for part in line.lstrip("\ufeff").split("|"))
 
         start = next((i + 1 for i, line in enumerate(lines)
                       if normalized_header(line) == normalized_header(header)), None)
@@ -141,7 +141,7 @@ class SecClient:
             if len(p) != 5:
                 raise RuntimeError(f"SEC daily-index malformed row: {day}")
             try:
-                filed = dt.date.fromisoformat(p[3])
+                filed = (dt.datetime.strptime(p[3], "%Y%m%d").date()\n                         if re.fullmatch(r"\\d{8}", p[3])\n                         else dt.date.fromisoformat(p[3]))
                 int(p[0])
             except (ValueError, TypeError) as exc:
                 raise RuntimeError(f"SEC daily-index invalid filing row: {day}") from exc
@@ -149,7 +149,7 @@ class SecClient:
                 raise RuntimeError(f"SEC daily-index inconsistent filing row: {day}")
             out.append({
                 "cik": p[0], "company": p[1], "form": p[2],
-                "filed": p[3], "filename": p[4], "source": "daily-index",
+                "filed": filed.isoformat(), "filename": p[4], "source": "daily-index",
             })
         LOG.warning("SEC daily-index verified: day=%s rows=%d", day, len(out))
         return out
