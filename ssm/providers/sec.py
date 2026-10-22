@@ -148,7 +148,12 @@ class SecClient:
             except (ValueError, TypeError) as exc:
                 raise RuntimeError(f"SEC daily-index invalid filing row: {day}") from exc
             if filed != day or not p[2].strip() or not p[4].strip():
-                raise RuntimeError(f"SEC daily-index inconsistent filing row: {day}")
+                raise RuntimeError(
+                    f"SEC daily-index inconsistent filing row: index_day={day} "
+                    f"row_number={start + len(out) + 1} cik={p[0]!r} "
+                    f"filed={p[3]!r} parsed_date={filed} "
+                    f"form_present={bool(p[2])} filename_present={bool(p[4])}"
+                )
             out.append({
                 "cik": p[0], "company": p[1], "form": p[2],
                 "filed": filed.isoformat(), "filename": p[4], "source": "daily-index",
