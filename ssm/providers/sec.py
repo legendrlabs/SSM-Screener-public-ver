@@ -141,7 +141,9 @@ class SecClient:
             if len(p) != 5:
                 raise RuntimeError(f"SEC daily-index malformed row: {day}")
             try:
-                filed = (dt.datetime.strptime(p[3], "%Y%m%d").date()\n                         if re.fullmatch(r"\\d{8}", p[3])\n                         else dt.date.fromisoformat(p[3]))
+                filed = (dt.datetime.strptime(p[3], "%Y%m%d").date()
+                         if re.fullmatch(r"\d{8}", p[3])
+                         else dt.date.fromisoformat(p[3]))
                 int(p[0])
             except (ValueError, TypeError) as exc:
                 raise RuntimeError(f"SEC daily-index invalid filing row: {day}") from exc
