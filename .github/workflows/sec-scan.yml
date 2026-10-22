@@ -104,7 +104,7 @@ jobs:
             --trigger "$GITHUB_EVENT_NAME" \
             --days "$SCAN_DAYS"
 
-      - name: Upload dated scan reports (public repository artifact)
+      - name: Generate DATA_HOLD diagnostic report (non-gating)\n        run: python scripts/triage_data_hold.py --out \"$SSM_OUT\"\n\n      - name: Upload dated scan reports (public repository artifact)
         uses: actions/upload-artifact@v4
         with:
           name: ssm-sec-scan-${{ github.run_id }}
