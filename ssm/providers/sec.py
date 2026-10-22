@@ -73,7 +73,7 @@ class SecClient:
             if raw.startswith((b"\\xff\\xfe", b"\\xfe\\xff")):
                 txt = raw.decode("utf-16")
                 encoding = "utf-16-bom"
-            elif len(raw) >= 8 and raw[:128].count(b"\\x00") >= 8:
+            elif len(raw) >= 8 and raw[:128].count(b"\x00") >= 8:
                 even_nuls = raw[:128:2].count(0)
                 odd_nuls = raw[1:128:2].count(0)
                 if odd_nuls > even_nuls * 3:
