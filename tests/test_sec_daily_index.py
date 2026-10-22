@@ -55,3 +55,14 @@ def test_index_byte_decoding(monkeypatch, encoding):
     )
     monkeypatch.setattr(client, "_get", lambda url: response)
     assert len(client.daily_master_index(DAY)) == 1
+
+def test_real_sec_daily_index_format(monkeypatch):
+    """Observed SEC 2026-10-21 format uses File Name and YYYYMMDD."""
+    day = dt.date(2026, 10, 21)
+    header = "CIK|Company Name|Form Type|Date Filed|File Name"
+    row = "1000209|MEDALLION FINANCIAL CORP|8-K|20261021|edgar/data/1000209/0001193125-26-427818.txt"
+    client = client_with_response(monkeypatch, "Description: Daily Index of EDGAR Dissemination Feed\n" + header + "\n" + "-" * 80 + "\n" + row + "\n")
+    filings = client.daily_master_index(day)
+    assert len(filings) == 1
+    assert filings[0]["filed"] == "2026-10-21"
+    assert filings[0]["filename"].endswith("0001193125-26-427818.txt")
