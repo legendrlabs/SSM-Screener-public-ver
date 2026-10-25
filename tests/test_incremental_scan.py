@@ -1,11 +1,16 @@
 """Incremental SEC scans must be accession-based and fail closed."""
 from datetime import datetime, timedelta, timezone
 import json
+import io
+import sys
+import zipfile
 from pathlib import Path
+from urllib.request import Request
 
 import pytest
 
-from scripts.scan_checkpoint import plan, verify_checkpoint
+from scripts import scan_checkpoint as checkpoint_module
+from scripts.scan_checkpoint import plan, verify_checkpoint, SafeArtifactRedirect
 from scripts.verify_scan_outputs import verify
 from ssm import pipeline
 from ssm.models import Candidate, Dilution
@@ -127,3 +132,70 @@ def test_delta_outputs_must_have_baseline_and_explicit_scope(tmp_path):
     result = verify(tmp_path, run_id="next", commit="abc", trigger="schedule", days=2)
     assert result["scan_scope"] == "INCREMENTAL_DELTA"
     assert result["last_full_lookback_days"] == 7
+
+
+def test_redirect_never_forwards_token_to_signed_artifact_host():
+    handler = SafeArtifactRedirect()
+    request = Request("https://api.github.com/repos/o/r/actions/artifacts/123/zip",
+                      headers={"Authorization": "Bearer test-only", "Accept": "application/vnd.github+json"})
+    signed = handler.redirect_request(request, None, 302, "Found", {},
+                                      "https://example.blob.core.windows.net/signed?token=sample")
+    assert signed.get_header("Authorization") is None
+    assert signed.get_header("Accept") == "application/vnd.github+json"
+    same_host = handler.redirect_request(request, None, 302, "Found", {},
+                                         "https://api.github.com/other-api")
+    assert same_host.get_header("Authorization") == "Bearer test-only"
+
+
+def test_checkpoint_skips_broken_latest_artifact_and_verifies_older(monkeypatch):
+    now = datetime.now(timezone.utc)
+    stamp = now.isoformat()
+    repo = "legendrlabs/SSM-Screener-public-ver"
+    runs = [{"id": 202, "head_sha": "sha2", "conclusion": "success"},
+            {"id": 201, "head_sha": "sha1", "conclusion": "success"}]
+    meta = {"run_id": "201", "source_commit": "sha1", "scan_status": "SUCCESS",
+            "completed_at_utc": stamp, "last_full_completed_at_utc": stamp,
+            "last_full_lookback_days": 7}
+    seen = {"schema_version": 1, "run_id": "201", "entries": {},
+            "last_full_completed_at_utc": stamp, "last_full_lookback_days": 7}
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as z:
+        for name, data in (("run_metadata.json", meta), ("seen_filings.json", seen),
+                           ("quality.json", {"SAFE_TO_ACT": False})):
+            z.writestr(name, json.dumps(data))
+    def fake_api(url, token):
+        if "/workflows/" in url:
+            return json.dumps({"workflow_runs": runs}).encode()
+        if "/runs/202/artifacts" in url:
+            return json.dumps({"artifacts": [{"id": 302, "name": "ssm-sec-scan-202"}]}).encode()
+        if "/runs/201/artifacts" in url:
+            return json.dumps({"artifacts": [{"id": 301, "name": "ssm-sec-scan-201"}]}).encode()
+        if "/artifacts/302/zip" in url:
+            return b"not a zip"
+        if "/artifacts/301/zip" in url:
+            return archive.getvalue()
+        raise AssertionError(url)
+    monkeypatch.setattr(checkpoint_module, "api", fake_api)
+    run_id, selected_meta, selected_seen = checkpoint_module.find_checkpoint(repo, "fake", now)
+    assert run_id == 201
+    assert selected_meta == meta and selected_seen == seen
+
+
+def test_checkpoint_restore_calls_remote_lookup_only_once(tmp_path, monkeypatch):
+    now = datetime.now(timezone.utc)
+    stamp = now.isoformat()
+    meta = {"completed_at_utc": stamp, "last_full_completed_at_utc": stamp}
+    seen = {"schema_version": 1, "entries": {"filing-1": "2026-10-23"}}
+    calls = []
+    def fake_checkpoint(repo, token, current):
+        calls.append(repo)
+        return 100, meta, seen
+    monkeypatch.setattr(checkpoint_module, "find_checkpoint", fake_checkpoint)
+    monkeypatch.setenv("GH_TOKEN", "test-only")
+    monkeypatch.setattr(sys, "argv", ["scan_checkpoint.py", "--repo", "legendrlabs/SSM-Screener-public-ver",
+                                      "--out", str(tmp_path)])
+    checkpoint_module.main()
+    assert calls == ["legendrlabs/SSM-Screener-public-ver"]
+    planned = json.loads((tmp_path / "scan_plan.json").read_text())
+    assert planned["mode"] == "incremental" and planned["source_run_id"] == "100"
+    assert json.loads((tmp_path / "prior_seen_filings.json").read_text()) == seen

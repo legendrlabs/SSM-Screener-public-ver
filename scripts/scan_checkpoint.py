@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import urllib.request
 import urllib.error
+from urllib.parse import urlsplit
 import zipfile
 
 WORKFLOW = "sec-scan.yml"
@@ -54,12 +55,30 @@ def verify_checkpoint(meta, seen, quality, run, now):
     return completed, last_full
 
 
+class SafeArtifactRedirect(urllib.request.HTTPRedirectHandler):
+    """Do not send GITHUB_TOKEN to signed artifact download hosts."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and urlsplit(req.full_url).hostname != urlsplit(newurl).hostname:
+            redirected.remove_header("Authorization")
+        return redirected
+
+
 def api(url, token):
     request = urllib.request.Request(
         url, headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                       "User-Agent": "SSM-operator-checkpoint/1"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read()
+    try:
+        with urllib.request.build_opener(SafeArtifactRedirect()).open(request, timeout=30) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        # Only log GitHub API stage and numeric status; never log signed URLs or credentials.
+        path = urlsplit(url).path
+        stage = ("artifact_download" if "/actions/artifacts/" in path else
+                 "run_artifacts" if "/actions/runs/" in path else "workflow_runs")
+        print(json.dumps({"checkpoint_api_stage": stage, "http_status": exc.code}))
+        raise
 
 
 def find_checkpoint(repo, token, now):
@@ -67,24 +86,33 @@ def find_checkpoint(repo, token, now):
         f"https://api.github.com/repos/{repo}/actions/workflows/{WORKFLOW}/runs"
         "?status=success&branch=main&per_page=10", token))
     for run in runs.get("workflow_runs", []):
-        # Only a completed scan from the same canonical repository/main.
+        # Only completed scans from this canonical repository/main may be reused.
         if run.get("conclusion") != "success" or (run.get("head_repository") or {}).get("full_name", repo) != repo:
             continue
         run_id = run["id"]
-        arts = json.loads(api(f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=30", token))
-        art = next((a for a in arts.get("artifacts", [])
-                    if a.get("name") == f"ssm-sec-scan-{run_id}" and not a.get("expired")), None)
-        if art is None:
-            continue
-        raw = api(f"https://api.github.com/repos/{repo}/actions/artifacts/{art['id']}/zip", token)
-        with zipfile.ZipFile(io.BytesIO(raw)) as z:
-            if not REQUIRED.issubset(z.namelist()):
+        try:
+            arts = json.loads(api(f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=30", token))
+            art = next((a for a in arts.get("artifacts", [])
+                        if a.get("name") == f"ssm-sec-scan-{run_id}" and not a.get("expired")), None)
+            if art is None:
+                print(json.dumps({"checkpoint_skip_run_id": run_id, "reason": "artifact_missing_or_expired"}))
                 continue
-            meta = json.loads(z.read("run_metadata.json"))
-            seen = json.loads(z.read("seen_filings.json"))
-            quality = json.loads(z.read("quality.json"))
+            raw = api(f"https://api.github.com/repos/{repo}/actions/artifacts/{art['id']}/zip", token)
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                if not REQUIRED.issubset(z.namelist()):
+                    raise ValueError("Missing checkpoint files")
+                meta = json.loads(z.read("run_metadata.json"))
+                seen = json.loads(z.read("seen_filings.json"))
+                quality = json.loads(z.read("quality.json"))
             verify_checkpoint(meta, seen, quality, run, now)
             return run_id, meta, seen
+        except (ValueError, OSError, KeyError, TypeError, UnicodeError,
+                urllib.error.URLError, zipfile.BadZipFile) as exc:
+            # Skip a broken artifact, not all older verified checkpoints.
+            failure = {"checkpoint_skip_run_id": run_id, "reason": type(exc).__name__}
+            if isinstance(exc, urllib.error.HTTPError):
+                failure["http_status"] = exc.code
+            print(json.dumps(failure))
     raise ValueError("No verified recent scan artifact")
 
 
@@ -123,17 +151,25 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     mode = choose_mode(args.requested, args.schedule)
-    result = plan(mode, args.schedule, repo=args.repo, token=os.environ.get("GH_TOKEN"), now=now)
-    # Only restore a verified checkpoint. If network retrieval fails later, fail closed.
-    if result["mode"] == "incremental":
+    if mode == "full":
+        result = plan(mode, args.schedule, now=now)
+    else:
         try:
-            run_id, meta, seen = find_checkpoint(args.repo, os.environ["GH_TOKEN"], now)
-            if str(run_id) != result["source_run_id"]:
-                raise ValueError("Checkpoint changed during planning")
-            (args.out / "prior_seen_filings.json").write_text(json.dumps(seen), encoding="utf-8")
-        except (Exception) as exc:
-            result = {"mode": "full", "days": 7, "reason": "checkpoint_restore_failed",
+            if not os.environ.get("GH_TOKEN"):
+                raise ValueError("Checkpoint API configuration unavailable")
+            # Select once: avoid downloading the same ZIP twice or racing a new run.
+            checkpoint = find_checkpoint(args.repo, os.environ["GH_TOKEN"], now)
+            result = plan(mode, args.schedule, now=now, checkpoint=checkpoint)
+            if result["mode"] == "incremental":
+                _, _, seen = checkpoint
+                (args.out / "prior_seen_filings.json").write_text(
+                    json.dumps(seen), encoding="utf-8")
+        except (ValueError, OSError, KeyError, TypeError, UnicodeError,
+                urllib.error.URLError, zipfile.BadZipFile) as exc:
+            result = {"mode": "full", "days": 7, "reason": "checkpoint_unavailable_or_stale",
                       "source_run_id": None, "fallback_type": type(exc).__name__}
+            if isinstance(exc, urllib.error.HTTPError):
+                result["fallback_http_status"] = exc.code
     (args.out / "scan_plan.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result))
 
