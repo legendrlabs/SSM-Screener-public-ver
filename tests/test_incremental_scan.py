@@ -26,6 +26,8 @@ def test_unique_filing_id_includes_form_and_accession():
 
 
 def test_full_then_incremental_filters_previously_scanned_accessions(tmp_path, monkeypatch):
+    # GitHub Actions defines this automatically; make simulated run IDs explicit.
+    monkeypatch.setenv("GITHUB_RUN_ID", "222")
     now = datetime.now(timezone.utc)
     today = now.date().isoformat()
     old = {"cik": "123", "form": "8-K", "filed": today,
@@ -85,6 +87,7 @@ def test_full_then_incremental_filters_previously_scanned_accessions(tmp_path, m
     assert saved["run_id"] == "222"
 
     # Chained deltas must preserve the original full anchor, never reset it.
+    monkeypatch.setenv("GITHUB_RUN_ID", "333")
     replay, state2 = pipeline.scan(
         2, str(cfg), str(tmp_path / "empty.csv"), str(tmp_path / "override.json"),
         incremental_state_path=str(first_output / "seen_filings.json"))
