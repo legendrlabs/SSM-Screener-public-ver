@@ -13,6 +13,7 @@ from scripts import scan_checkpoint as checkpoint_module
 from scripts.scan_checkpoint import plan, verify_checkpoint, SafeArtifactRedirect
 from scripts.verify_scan_outputs import verify
 from ssm import pipeline
+from ssm.report import write_outputs
 from ssm.models import Candidate, Dilution
 
 
@@ -25,6 +26,8 @@ def test_unique_filing_id_includes_form_and_accession():
 
 
 def test_full_then_incremental_filters_previously_scanned_accessions(tmp_path, monkeypatch):
+    # GitHub Actions defines this automatically; make simulated run IDs explicit.
+    monkeypatch.setenv("GITHUB_RUN_ID", "222")
     now = datetime.now(timezone.utc)
     today = now.date().isoformat()
     old = {"cik": "123", "form": "8-K", "filed": today,
@@ -69,13 +72,35 @@ def test_full_then_incremental_filters_previously_scanned_accessions(tmp_path, m
     assert state["_incremental_source_run_id"] == "111"
     assert state["_new_filing_count"] == 1
     assert len(state["_seen_filings"]["entries"]) == 2
-    # Replaying same input again must not create a new candidate.
-    previous["entries"] = state["_seen_filings"]["entries"]
-    checkpoint.write_text(json.dumps(previous))
-    replay, state2 = pipeline.scan(2, str(cfg), str(tmp_path / "empty.csv"),
-                                   str(tmp_path / "override.json"), incremental_state_path=str(checkpoint))
+    assert state["_seen_filings"]["last_full_completed_at_utc"] == previous["last_full_completed_at_utc"]
+    assert state["_seen_filings"]["last_full_lookback_days"] == 7
+
+    # Exercise the same pipeline -> output -> verify path as GitHub Actions.
+    state["max_candidates"] = 5
+    first_output = tmp_path / "delta1"
+    write_outputs(delta, state, first_output)
+    checked = verify(first_output, run_id="222", commit="demo", trigger="schedule", days=2)
+    assert checked["scan_scope"] == "INCREMENTAL_DELTA"
+    assert checked["last_full_completed_at_utc"] == previous["last_full_completed_at_utc"]
+    assert checked["last_full_lookback_days"] == 7
+    saved = json.loads((first_output / "seen_filings.json").read_text())
+    assert saved["run_id"] == "222"
+
+    # Chained deltas must preserve the original full anchor, never reset it.
+    monkeypatch.setenv("GITHUB_RUN_ID", "333")
+    replay, state2 = pipeline.scan(
+        2, str(cfg), str(tmp_path / "empty.csv"), str(tmp_path / "override.json"),
+        incremental_state_path=str(first_output / "seen_filings.json"))
     assert not replay
     assert state2["_new_filing_count"] == 0
+    assert state2["_seen_filings"]["last_full_lookback_days"] == 7
+    state2["max_candidates"] = 5
+    second_output = tmp_path / "delta2"
+    write_outputs(replay, state2, second_output)
+    checked2 = verify(second_output, run_id="333", commit="demo", trigger="schedule", days=2)
+    assert checked2["checkpoint_source_run_id"] == "222"
+    assert checked2["last_full_completed_at_utc"] == previous["last_full_completed_at_utc"]
+    assert checked2["last_full_lookback_days"] == 7
 
 
 def test_fallback_without_valid_checkpoint_and_manual_full(tmp_path):
@@ -199,3 +224,24 @@ def test_checkpoint_restore_calls_remote_lookup_only_once(tmp_path, monkeypatch)
     planned = json.loads((tmp_path / "scan_plan.json").read_text())
     assert planned["mode"] == "incremental" and planned["source_run_id"] == "100"
     assert json.loads((tmp_path / "prior_seen_filings.json").read_text()) == seen
+
+
+@pytest.mark.parametrize("full_days, full_at", [
+    (None, "2026-10-26T18:10:00+00:00"),
+    (2, "2026-10-26T18:10:00+00:00"),
+    (True, "2026-10-26T18:10:00+00:00"),
+    (7, None),
+])
+def test_incremental_rejects_missing_or_unverified_full_anchor_before_sec_access(
+        tmp_path, monkeypatch, full_days, full_at):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"event_forms": ["8-K"]}))
+    prior = tmp_path / "unverified.json"
+    prior.write_text(json.dumps({
+        "schema_version": 1, "run_id": "111", "entries": {},
+        "last_full_completed_at_utc": full_at,
+        "last_full_lookback_days": full_days,
+    }))
+    monkeypatch.setattr(pipeline, "SecClient", lambda: pytest.fail("Must reject before SEC discovery"))
+    with pytest.raises(ValueError, match="seven-day full baseline"):
+        pipeline.scan(2, str(cfg), incremental_state_path=str(prior))

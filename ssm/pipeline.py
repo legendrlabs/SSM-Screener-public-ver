@@ -443,6 +443,13 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         previous_run_id = previous.get("run_id")
         if not previous_run_id:
             raise ValueError("Incremental checkpoint missing source run ID")
+        # A delta must inherit the *verified full* baseline, never substitute
+        # its shorter lookback or the previous delta's completion timestamp.
+        prior_full_at = previous.get("last_full_completed_at_utc")
+        prior_full_days = previous.get("last_full_lookback_days")
+        if (not isinstance(prior_full_at, str) or not prior_full_at.strip()
+                or type(prior_full_days) is not int or prior_full_days < 7):
+            raise ValueError("Incremental checkpoint missing a seven-day full baseline")
     overrides = load_json(overrides_path) if Path(overrides_path).exists() else {}
     sec = SecClient()
     by_cik, by_ticker = _ticker_map(sec)
@@ -539,8 +546,12 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         "schema_version": 1, "run_id": os.environ.get("GITHUB_RUN_ID"),
         "entries": encountered,
         "last_full_completed_at_utc": None,
+        "last_full_lookback_days": None,
     }
     if incremental_state_path is not None:
-        cfg["_seen_filings"]["last_full_completed_at_utc"] = previous.get("last_full_completed_at_utc")
+        # Preserve both fields through pipeline -> report -> verifier -> next
+        # artifact. verify_scan_outputs independently checks the >=7-day anchor.
+        cfg["_seen_filings"]["last_full_completed_at_utc"] = prior_full_at
+        cfg["_seen_filings"]["last_full_lookback_days"] = prior_full_days
     out.sort(key=lambda c: (c.bucket == "A_RESEARCH_NOW", c.priority_score or -1), reverse=True)
     return out, cfg
