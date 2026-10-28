@@ -131,9 +131,15 @@ def write_outputs(candidates,cfg,out_dir):
     with (out/"event_ledger.csv").open("w",newline="",encoding="utf-8-sig") as f:
         fields=["ticker","security_type","event_date","most_recent_filing_date","form","event_type","event_status","event_proof","accession","summary","event_terms","event_sources","event_history","event_selection_reason","gate_status","bucket"];w=csv.DictWriter(f,fieldnames=fields);w.writeheader()
         for c in candidates:w.writerow({"ticker":c.ticker,"security_type":c.security_type,"event_date":c.latest_event_date,"most_recent_filing_date":c.most_recent_filing_date,"form":c.latest_event_form,"event_type":c.event_type,"event_status":c.event_status,"event_proof":c.event_proof,"accession":c.latest_event_accession,"summary":c.event_summary,"event_terms":json.dumps(c.event_terms,sort_keys=True),"event_sources":json.dumps(c.event_sources),"event_history":json.dumps(c.event_history,sort_keys=True),"event_selection_reason":c.event_selection_reason,"gate_status":c.gate_status,"bucket":c.bucket})
+    ma_discoveries = [c for c in candidates if c.discovery_status == "M&A_DISCOVERY_REVIEW_REQUIRED"]
     action_candidates=[c for c in candidates if c.bucket=="A_RESEARCH_NOW"]
     safe=bool(action_candidates) and all(_active_common(c) and c.gate_status=="PASS" and c.financial_review_complete and c.event_review_complete for c in action_candidates)
     q={"SAFE_TO_ACT":safe,"sec_discovery_mode":cfg.get("_sec_discovery_mode","unknown"),"candidate_count":len(candidates),"financial_review_incomplete_count":sum(not c.financial_review_complete for c in candidates),"data_hold_count":sum(c.gate_status=="DATA_HOLD" for c in candidates),"pass_count":sum(c.gate_status=="PASS" for c in candidates),"watch_count":sum(c.gate_status=="WATCH" for c in candidates),"reject_count":sum(c.gate_status=="REJECT" for c in candidates)}
+    q["ma_discovery_count"] = len(ma_discoveries)
+    q["ma_acquirer_8k_reads"] = cfg.get("_ma_acquirer_8k_reads", 0)
+    q["ma_unmatched_form_count"] = cfg.get("_ma_discovery_form_unmatched_count", 0)
+    q["ma_budget_exceeded_count"] = cfg.get("_ma_8k_budget_exceeded_count", 0)
+    q["ma_discovery_partial"] = cfg.get("_ma_discovery_partial", False)
     q["scan_scope"] = scope
     q["incremental_source_run_id"] = cfg.get("_incremental_source_run_id")
     q["discovered_filing_count"] = cfg.get("_discovered_filing_count")
@@ -179,6 +185,28 @@ def write_outputs(candidates,cfg,out_dir):
             "PASS/WATCH counts below include only issuers with newly discovered filings or explicit watchlist checks.",
             ""
         ]
+    if ma_discoveries:
+        md += ["", f"## M&A DISCOVERY / REVIEW REQUIRED — {len(ma_discoveries)} targets", "",
+               "**Discovery only: DATA_HOLD is not investment approval, and cash tender price is not expected profit.**", ""]
+        for c in ma_discoveries:
+            t = c.event_terms.get("third_party_discovery", c.event_terms)
+            price = t.get("cash_per_share_usd")
+            price_text = f"${price:g} cash per share (unreconciled)" if price is not None else "price unresolved"
+            md += [
+                f"- **{c.ticker}** — {c.name} / {c.event_status} / gate {c.gate_status}; "
+                f"{price_text}; consideration {t.get('consideration_type', 'UNVERIFIED')}; "
+                f"source {t.get('source_form', 'SEC filing')} {t.get('discovery_accession', 'unresolved')}.",
+                "  Target identity: " + t.get("counterparty_identification", "unresolved")
+                + "; financing condition: " + t.get("financing_condition", "UNVERIFIED")
+                + "; regulatory approvals: " + t.get("regulatory_approval", "UNVERIFIED")
+                + "; minimum tender: " + t.get("minimum_tender", "UNVERIFIED") + ".",
+                "  Sources: " + ", ".join(f"[SEC {i+1}]({url})" for i, url in enumerate(c.event_sources)),
+            ]
+    if q["ma_discovery_partial"]:
+        md += ["", "**M&A discovery coverage incomplete:** "
+               f"{q['ma_budget_exceeded_count']} acquirer 8-K filings outside inspection budget; "
+               f"{q['ma_unmatched_form_count']} tender forms unresolved or not retrieved. "
+               "No inferred PASS.", ""]
     material=[c for c in candidates if _active_common(c) and (
         c.event_type in MERGER_KINDS | {'LIQUIDATION_DISTRIBUTION'} or
         (c.event_type == 'DEBT_RESTRUCTURING' and c.event_terms.get('materiality') == 'STRUCTURAL') or

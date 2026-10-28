@@ -125,8 +125,11 @@ class SecClient:
         cutoff = dt.date.today() - dt.timedelta(days=days)
         rows = []
         seen = set()
+        from ..ma_discovery import TENDER_FORMS
+        tender_limit = max(1, min(5, int(os.getenv("SSM_MA_TENDER_FORM_PAGES", "2"))))
         for form in forms:
-            for page in range(max_pages_per_form):
+            limit = min(max_pages_per_form, tender_limit) if form in TENDER_FORMS else max_pages_per_form
+            for page in range(limit):
                 params = {
                     "action": "getcurrent",
                     "type": form,

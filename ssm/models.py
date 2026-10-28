@@ -75,6 +75,7 @@ class Candidate:
     event_type: str = ""
     event_proof: int = 0
     event_summary: str = ""
+    discovery_status: str = ""
     asset_value_usd: Optional[float] = None
     net_cash_usd: Optional[float] = None
     dilution: Dilution = field(default_factory=Dilution)
