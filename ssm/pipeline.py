@@ -615,7 +615,8 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     cfg["_discovered_filing_count"] = discovery_count
     cfg["_new_filing_count"] = new_discovery_count
     cfg["_seen_filings"] = {
-        "schema_version": 1, "run_id": os.environ.get("GITHUB_RUN_ID"),
+        "schema_version": 1, "ma_discovery_version": 1,
+        "run_id": os.environ.get("GITHUB_RUN_ID"),
         "entries": encountered,
         "last_full_completed_at_utc": None,
         "last_full_lookback_days": None,
