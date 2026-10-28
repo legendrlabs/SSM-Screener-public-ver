@@ -101,9 +101,15 @@ def extract_terms(text, form):
              "expected_closing": "UNVERIFIED", "preferred_convertibles_warrants": "UNVERIFIED",
              "fd_review_required": True,
              "terms_source": "SEC primary text; terms not independently reconciled"}
-    # Require the price *and* an explicit cash/share entitlement in the same clause.
+    # Reject nominal/par-value clauses even if a nearby unrelated sentence says cash.
+    # Price and cash entitlement must be in the same bounded clause.
     for m in re.finditer(r"\$\s*(\d{1,5}(?:\.\d+)?)\s+per\s+(?:common\s+)?share\b", t, re.I):
-        context = t[max(0, m.start()-160):m.end()+160]
+        clause_start = max(t.rfind(".", 0, m.start()), t.rfind(";", 0, m.start()), t.rfind(":", 0, m.start()))
+        clause_end_candidates = [p for p in (t.find(".", m.end()), t.find(";", m.end())) if p >= 0]
+        clause_end = min(clause_end_candidates) if clause_end_candidates else len(t)
+        context = t[max(clause_start + 1, m.start() - 180):min(clause_end, m.end() + 180)]
+        if re.search(r"\b(?:par value|stated value|nominal value)\b", context, re.I):
+            continue
         if re.search(r"\b(?:in cash|payable in cash|cash tender offer)\b", context, re.I):
             terms.update(cash_per_share_usd=float(m.group(1)), consideration_type="CASH")
             break
