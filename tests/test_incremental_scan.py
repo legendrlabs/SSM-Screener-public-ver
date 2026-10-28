@@ -128,7 +128,8 @@ def test_checkpoint_requires_matching_artifact_identity_and_full_baseline():
     meta = {"run_id": "100", "source_commit": "commitsha", "scan_status": "SUCCESS",
             "completed_at_utc": stamp, "last_full_completed_at_utc": stamp,
             "last_full_lookback_days": 7}
-    seen = {"schema_version": 1, "run_id": "100", "entries": {},
+    seen = {"schema_version": 1, "ma_discovery_version": 1,
+            "run_id": "100", "entries": {},
             "last_full_completed_at_utc": stamp, "last_full_lookback_days": 7}
     quality = {"SAFE_TO_ACT": False}
     assert verify_checkpoint(meta, seen, quality, run, now)[0] == now
