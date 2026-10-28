@@ -95,6 +95,12 @@ def test_cash_stock_cvr_and_outcome_are_not_conflated():
     cvr = extract_terms(base + "Each common share receives $12.50 per share in cash. "
                         "A Contingent Value Right may be payable.", "8-K")
     assert cvr["consideration_type"] == "CASH" and cvr["cvr"] == "PRESENT_VALUE_UNVERIFIED"
+    timing = extract_terms(base +
+        "The acquisition is expected to close in the first quarter of calendar year 2027. "
+        "The offer is not subject to a financing condition; convertible notes must be reconciled.", "8-K")
+    assert timing["expected_closing"] == "Q1 2027"
+    assert timing["financing_condition"] == "NONE_DISCLOSED"
+    assert timing["preferred_convertibles_warrants"] == "MENTIONED_REQUIRES_REVIEW"
     stock = extract_terms(base + "Each common share receives $12.50 per share in cash; "
                           "a stock exchange ratio applies.", "8-K")
     assert stock["consideration_type"] == "CASH_AND_STOCK_UNVERIFIED"
