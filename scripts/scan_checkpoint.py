@@ -38,6 +38,8 @@ def verify_checkpoint(meta, seen, quality, run, now):
         raise ValueError("Checkpoint quality missing SAFE_TO_ACT")
     if seen.get("schema_version") != 1 or not isinstance(seen.get("entries"), dict):
         raise ValueError("No compatible seen-filing ledger")
+    if seen.get("ma_discovery_version") != 1:
+        raise ValueError("M&A discovery added: prior checkpoint requires full rebaseline")
     if seen.get("run_id") != str(run["id"]):
         raise ValueError("Seen ledger run identity mismatch")
     completed = utc(meta["completed_at_utc"])
