@@ -97,7 +97,9 @@ def extract_terms(text, form):
     terms = {"consideration_type": "UNVERIFIED", "cash_per_share_usd": None,
              "financing_condition": "UNVERIFIED", "regulatory_approval": "UNVERIFIED",
              "minimum_tender": "UNVERIFIED", "cvr": "UNVERIFIED",
-             "earnout": "UNVERIFIED", "fd_review_required": True,
+             "earnout": "UNVERIFIED",
+             "expected_closing": "UNVERIFIED", "preferred_convertibles_warrants": "UNVERIFIED",
+             "fd_review_required": True,
              "terms_source": "SEC primary text; terms not independently reconciled"}
     # Require the price *and* an explicit cash/share entitlement in the same clause.
     for m in re.finditer(r"\$\s*(\d{1,5}(?:\.\d+)?)\s+per\s+(?:common\s+)?share\b", t, re.I):
@@ -107,6 +109,14 @@ def extract_terms(text, form):
             break
     if re.search(r"\b(?:stock|share)\s+(?:consideration|exchange ratio)\b", t, re.I):
         terms["consideration_type"] = "CASH_AND_STOCK_UNVERIFIED" if terms["cash_per_share_usd"] else "STOCK_UNVERIFIED"
+    quarter = re.search(r"\b(?:expected|anticipated) to close (?:in|during) (?:the )?"
+                        r"(first|second|third|fourth) quarter of (?:calendar |fiscal )?(?:year )?(20\d\d)", t, re.I)
+    if quarter:
+        terms["expected_closing"] = {
+            "first": "Q1", "second": "Q2", "third": "Q3", "fourth": "Q4"
+        }[quarter.group(1).lower()] + " " + quarter.group(2)
+    if re.search(r"\b(?:preferred stock|convertible (?:notes?|securities|debentures)|warrants?)\b", t, re.I):
+        terms["preferred_convertibles_warrants"] = "MENTIONED_REQUIRES_REVIEW"
     if re.search(r"\b(?:contingent value rights?|CVR)\b", t, re.I):
         terms["cvr"] = "PRESENT_VALUE_UNVERIFIED"
     if re.search(r"\bearn[- ]?out\b", t, re.I):
