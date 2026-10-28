@@ -31,7 +31,8 @@ def test_full_then_incremental_filters_previously_scanned_accessions(tmp_path, m
     now = datetime.now(timezone.utc)
     today = now.date().isoformat()
     old = {"cik": "123", "form": "8-K", "filed": today,
-           "accession": "0000000123-26-000001", "items": "1.01"}
+           "accession": "0000000123-26-000001", "items": "1.01",
+           "filename": "edgar/data/123/000000012326000001/primary.htm"}
     new = {**old, "accession": "0000000123-26-000002"}
     class FakeSec:
         last_discovery_mode = "atom"
@@ -184,7 +185,8 @@ def test_checkpoint_skips_broken_latest_artifact_and_verifies_older(monkeypatch)
     meta = {"run_id": "201", "source_commit": "sha1", "scan_status": "SUCCESS",
             "completed_at_utc": stamp, "last_full_completed_at_utc": stamp,
             "last_full_lookback_days": 7}
-    seen = {"schema_version": 1, "run_id": "201", "entries": {},
+    seen = {"schema_version": 1, "ma_discovery_version": 1,
+            "run_id": "201", "entries": {},
             "last_full_completed_at_utc": stamp, "last_full_lookback_days": 7}
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as z:
