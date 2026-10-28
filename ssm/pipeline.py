@@ -13,6 +13,7 @@ from .events import review_material_events, event_terms, event_status
 from .securities import resolve_security
 from .recapitalization import reconcile_capital_context
 from .capital_evidence import completed_warrant_exercise_evidence
+from .ma_discovery import TENDER_FORMS, name_index, discover
 from .financial_recapitalization import financial_capital_contexts
 
 OFFERING_FORMS = {"S-1", "S-3", "424B3", "424B5"}
@@ -454,6 +455,13 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     sec = SecClient()
     by_cik, by_ticker = _ticker_map(sec)
     latest = {}
+    # Acquisition discovery is independent of the acquirer's microcap gate.
+    ma_index = name_index(by_ticker)
+    ma_linked = {}
+    ma_reads = 0
+    ma_unmatched = 0
+    ma_budget_exceeded = 0
+    ma_read_limit = max(0, min(200, int(cfg.get("ma_discovery_max_acquirer_8k_reads", 80))))
     # Rolling ledger means the same accession in SEC's overlapping Atom
     # pages is not treated as a newly discovered event on every run.
     from datetime import date, timedelta
@@ -470,16 +478,52 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         new_discovery_count += 1
         encountered[key] = raw.get("filed") or date.today().isoformat()
         metas = by_cik.get(str(int(raw["cik"])), [])
-        if not metas:
+        if not metas and raw.get("form") not in TENDER_FORMS:
             continue
         try:
-            filing = sec.enrich_filing(metas[0]["cik"], raw)
+            filing = sec.enrich_filing(str(int(raw["cik"])), raw)
         except Exception:
             # Do not checkpoint an unverified filing as fully processed.
             encountered.pop(key, None)
             filing = raw
         if not _material(filing, cfg):
             continue
+        form = filing.get("form", "")
+        is_tender = form in TENDER_FORMS
+        # Only Item 1.01 / 2.01 acquirer reports get a bounded secondary
+        # text read. Never let the acquirer's market cap block this lookup.
+        is_buyer_8k = (form in {"8-K", "8-K/A"}
+                       and bool(_items(filing) & {"1.01", "2.01"}))
+        should_read = is_tender or (is_buyer_8k and ma_reads < ma_read_limit)
+        if is_buyer_8k and not is_tender and not should_read:
+            ma_budget_exceeded += 1
+            # Do not claim an unchecked filing is processed in the delta ledger.
+            encountered.pop(key, None)
+        if should_read:
+            if is_buyer_8k:
+                ma_reads += 1
+            try:
+                linked = discover(sec, filing, ma_index)
+                if linked:
+                    t = linked.ticker
+                    prior = ma_linked.get(t)
+                    if prior is None:
+                        ma_linked[t] = linked
+                    else:
+                        # Every source stays auditable; a newer completed or
+                        # cancelled filing overrides older signed conditions.
+                        for url in linked.event_sources:
+                            if url not in prior.event_sources:
+                                prior.event_sources.append(url)
+                        if (linked.latest_event_date or "") >= (prior.latest_event_date or ""):
+                            linked.event_sources = prior.event_sources
+                            ma_linked[t] = linked
+                elif is_tender:
+                    ma_unmatched += 1
+            except Exception:
+                # SEC failures must not poison the incremental checkpoint.
+                encountered.pop(key, None)
+                ma_unmatched += 1
         for meta in metas:
             if meta['exchange'] not in cfg['exchanges']:
                 continue
@@ -514,6 +558,29 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
             c.data_warnings.append(f"Pipeline error: {e}")
             out.append(c)
 
+    # Target issuer is a distinct discovery record. Do not insert the large
+    # acquirer into the microcap investment universe or apply its equity data
+    # to a different listed subject company.
+    by_candidate = {c.ticker: c for c in out}
+    for ticker, linked in ma_linked.items():
+        existing = by_candidate.get(ticker)
+        if existing is not None:
+            # A verified target-side merger can be retained, but a routine
+            # filing, unrelated REJECT, or stale event must not mask discovery.
+            if existing.event_type in {
+                "MERGER_CASH", "MERGER_CASH_CVR", "MERGER_STOCK",
+                "MERGER_CASH_STOCK", "MERGER_UNVERIFIED", "MERGER_TERMINATED",
+                "TERMINAL_MERGER",
+            } and existing.event_review_complete:
+                existing.discovery_status = "M&A_DISCOVERY_REVIEW_REQUIRED"
+                for url in linked.event_sources:
+                    if url not in existing.event_sources:
+                        existing.event_sources.append(url)
+                existing.event_terms.setdefault("third_party_discovery", linked.event_terms)
+                continue
+            out.remove(existing)
+        out.append(linked)
+
     # A processing exception should be retried on the next incremental run,
     # rather than being concealed forever by the accession checkpoint.
     for c in out:
@@ -537,6 +604,11 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         else:
             represented.add(c.cik)
 
+    cfg["_ma_discovery_count"] = len(ma_linked)
+    cfg["_ma_discovery_form_unmatched_count"] = ma_unmatched
+    cfg["_ma_acquirer_8k_reads"] = ma_reads
+    cfg["_ma_8k_budget_exceeded_count"] = ma_budget_exceeded
+    cfg["_ma_discovery_partial"] = bool(ma_budget_exceeded or ma_unmatched)
     cfg["_sec_discovery_mode"] = sec.last_discovery_mode or os.getenv("SSM_SEC_DISCOVERY_MODE", "auto")
     cfg["_scan_scope"] = "INCREMENTAL_DELTA" if incremental_state_path is not None else "FULL"
     cfg["_incremental_source_run_id"] = previous_run_id
