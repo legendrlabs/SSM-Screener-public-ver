@@ -41,6 +41,8 @@ def test_full_then_incremental_filters_previously_scanned_accessions(tmp_path, m
             return [old, new]
         def enrich_filing(self, cik, raw):
             return raw
+        def submission_text(self, filename):
+            return "Routine filing without a merger agreement or tender offer."
 
     meta = {"ticker": "DEMO", "cik": "123", "name": "Demo",
             "exchange": "Nasdaq", "security_type": "COMMON_EQUITY"}
