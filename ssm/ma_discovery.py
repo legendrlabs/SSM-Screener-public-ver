@@ -137,10 +137,17 @@ def extract_terms(text, form):
     cancelled = re.search(r"\b(?:merger agreement|tender offer)\b.{0,65}\b(?:was terminated|has been terminated|was withdrawn)\b", t, re.I)
     signed = (re.search(r"\bentered into\s+(?:an?\s+)?(?:agreement and plan of merger|merger agreement)\b", t, re.I)
               or re.search(r"\bdefinitive agreement to acquire\b", t, re.I))
-    terms["deal_status"] = ("TERMINATED" if cancelled else "COMPLETED" if closed
+    # A historical termination reference is not evidence that the *current*
+    # tender has ended. Conflicting lifecycle language is never certified.
+    active_tender = bool(re.search(
+        r"\\b(?:offer (?:is|remains) open|offer (?:will|is scheduled to) expire|"
+        r"expiration date (?:is|of)|offer has commenced|tender offer is ongoing|"
+        r"offer is currently outstanding)\\b", t, re.I))
+    status_conflict = bool(cancelled and active_tender)
+    terms["lifecycle_conflict_requires_review"] = status_conflict
+    terms["deal_status"] = ("UNVERIFIED" if status_conflict else
+                            "TERMINATED" if cancelled else "COMPLETED" if closed
                             else "SIGNED" if signed else "ANNOUNCED")
-    if terms["deal_status"] == "COMPLETED" and not closed:
-        terms["deal_status"] = "ANNOUNCED"
     return terms
 
 
