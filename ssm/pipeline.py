@@ -1,5 +1,5 @@
 from __future__ import annotations
-import csv, json, os
+import csv, json, os, re
 from pathlib import Path
 from .models import Candidate, Dilution
 from .event_rules import classify_event
@@ -14,6 +14,7 @@ from .securities import resolve_security
 from .recapitalization import reconcile_capital_context
 from .capital_evidence import completed_warrant_exercise_evidence
 from .ma_discovery import TENDER_FORMS, name_index, discover
+from .ma_review import issuer_role, variable_tender_terms, offer_spread_gate
 from .financial_recapitalization import financial_capital_contexts
 
 OFFERING_FORMS = {"S-1", "S-3", "424B3", "424B5"}
@@ -196,6 +197,28 @@ def build_candidate(sec, meta, filing, overrides, cfg, snapshot=None):
     except Exception as exc:
         c.event_review_complete = False
         c.data_warnings.append(f'Material event review failed: {exc}')
+    # Inspect the event's primary SEC disclosure for *issuer* position, not
+    # the deal's apparent consideration paid to unrelated shareholders.
+    # Ambiguous party direction never yields TARGET or a priced arbitrage.
+    if selected:
+        primary = selected.get("text") or ""
+        if primary and (c.event_type.startswith("MERGER") or
+                        c.event_type in {"ASSET_SALE_ACQUISITION", "MATERIAL_DEFINITIVE_AGREEMENT",
+                                         "MERGER_CASH_CVR", "MERGER_UNVERIFIED"}):
+            role, role_evidence = issuer_role(primary, c.name)
+            if role != "UNVERIFIED":
+                c.event_terms["ma_role"] = role
+                c.event_terms["ma_role_evidence"] = role_evidence
+                c.event_terms["ma_role_source_accession"] = c.latest_event_accession
+            variable = variable_tender_terms(primary)
+            if variable:
+                c.event_terms.update(variable)
+                c.event_terms["ma_economics_source_accession"] = c.latest_event_accession
+            if role == "ASSET_BUYER" and re.search(
+                r"\b(?:secured (?:promissory )?note|series [a-z] preferred|"
+                r"preferred stock|convertible note|warrants?)\b", primary, re.I):
+                c.event_terms["asset_acquisition_financing_review_required"] = True
+                c.event_terms["fd_review_required"] = True
     if c.event_status in {'TERMINAL', 'CANCELLED'}:
         c.dilution = Dilution(source='Terminal transaction: no active common-equity economics', confidence='low')
         c.price = c.adv20_usd = None
@@ -578,7 +601,22 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
                         existing.event_sources.append(url)
                 existing.event_terms.setdefault("third_party_discovery", linked.event_terms)
                 continue
+            # Reuse the issuer's own quote solely for a gross-spread screen.
+            # This does not transfer FD or market capitalization from another firm.
+            linked.price = existing.price
+            linked.price_as_of = existing.price_as_of
             out.remove(existing)
+        spread_review = offer_spread_gate(
+            linked.event_terms, linked.price, event_type=linked.event_type,
+            event_status=linked.event_status, price_as_of=linked.price_as_of,
+            max_quote_age_days=cfg.get("market_data_max_age_days", 3))
+        if spread_review is not None:
+            gate, reason, spread = spread_review
+            if spread is not None:
+                linked.event_terms["gross_cash_spread_pct"] = spread
+            if gate == "REJECT":
+                linked.gate_status = linked.bucket = "REJECT"
+                linked.data_warnings.append(reason)
         out.append(linked)
 
     # A processing exception should be retried on the next incremental run,

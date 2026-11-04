@@ -136,6 +136,13 @@ def write_outputs(candidates,cfg,out_dir):
     safe=bool(action_candidates) and all(_active_common(c) and c.gate_status=="PASS" and c.financial_review_complete and c.event_review_complete for c in action_candidates)
     q={"SAFE_TO_ACT":safe,"sec_discovery_mode":cfg.get("_sec_discovery_mode","unknown"),"candidate_count":len(candidates),"financial_review_incomplete_count":sum(not c.financial_review_complete for c in candidates),"data_hold_count":sum(c.gate_status=="DATA_HOLD" for c in candidates),"pass_count":sum(c.gate_status=="PASS" for c in candidates),"watch_count":sum(c.gate_status=="WATCH" for c in candidates),"reject_count":sum(c.gate_status=="REJECT" for c in candidates)}
     q["ma_discovery_count"] = len(ma_discoveries)
+    q["ma_asset_buyer_count"] = sum(c.event_terms.get("ma_role") == "ASSET_BUYER" for c in candidates)
+    q["ma_acquirer_count"] = sum(c.event_terms.get("ma_role") == "ACQUIRER" for c in candidates)
+    q["ma_target_count"] = sum(c.event_terms.get("ma_role") == "TARGET" for c in candidates)
+    q["ma_variable_offer_count"] = sum(bool(c.event_terms.get("variable_offer_review_required")) for c in candidates)
+    q["ma_nonpositive_spread_count"] = sum(
+        isinstance(c.event_terms.get("gross_cash_spread_pct"), (int, float))
+        and c.event_terms["gross_cash_spread_pct"] <= 0 for c in candidates)
     q["ma_acquirer_8k_reads"] = cfg.get("_ma_acquirer_8k_reads", 0)
     q["ma_unmatched_form_count"] = cfg.get("_ma_discovery_form_unmatched_count", 0)
     q["ma_budget_exceeded_count"] = cfg.get("_ma_8k_budget_exceeded_count", 0)
@@ -187,7 +194,7 @@ def write_outputs(candidates,cfg,out_dir):
         ]
     if ma_discoveries:
         md += ["", f"## M&A DISCOVERY / REVIEW REQUIRED — {len(ma_discoveries)} targets", "",
-               "**Discovery only: DATA_HOLD is not investment approval, and cash tender price is not expected profit.**", ""]
+               "**Discovery only: DATA_HOLD is not approval; REJECT is not an investment opportunity. Tender cash is not guaranteed profit.**", ""]
         for c in ma_discoveries:
             t = c.event_terms.get("third_party_discovery", c.event_terms)
             price = t.get("cash_per_share_usd")
@@ -207,6 +214,30 @@ def write_outputs(candidates,cfg,out_dir):
                f"{q['ma_budget_exceeded_count']} acquirer 8-K filings outside inspection budget; "
                f"{q['ma_unmatched_form_count']} tender forms unresolved or not retrieved. "
                "No inferred PASS.", ""]
+    ma_roles = [c for c in candidates if
+                c.event_terms.get("ma_role") in {"ASSET_BUYER", "ACQUIRER", "TARGET"}
+                or c.event_terms.get("variable_offer_review_required")]
+    if ma_roles:
+        md += ["", "## M&A ECONOMICS & ROLE AUDIT — read-only, no trade approval", "",
+               f"Asset buyers: {q['ma_asset_buyer_count']}; acquirers: {q['ma_acquirer_count']}; "
+               f"targets: {q['ma_target_count']}; variable offers: {q['ma_variable_offer_count']}; "
+               f"nonpositive cash spreads: {q['ma_nonpositive_spread_count']}.", ""]
+        for c in ma_roles[:30]:
+            terms = c.event_terms.get("third_party_discovery", c.event_terms)
+            source = c.event_sources[0] if c.event_sources else "source unresolved"
+            p = terms.get("cash_per_share_usd")
+            cash = "cash price unresolved" if p is None else f"cash per common share: USD {p:g}"
+            if terms.get("variable_offer_review_required"):
+                cash = ("VARIABLE AGGREGATE CASH, NOT FIXED PER-SHARE; "
+                        "debt, record-date denominator and FD unresolved")
+            spread = terms.get("gross_cash_spread_pct", c.event_terms.get("gross_cash_spread_pct"))
+            if isinstance(spread, (float, int)):
+                cash += f"; indicative gross spread {spread:+.2f}%"
+            md += [f"- **{c.ticker}** — {terms.get('ma_role', 'UNVERIFIED')} / "
+                   f"{c.event_status} / {c.gate_status}. {cash}.",
+                   f"  SEC source: {source}; filing accession: {c.latest_event_accession or 'unknown'}"]
+        if len(ma_roles) > 30:
+            md += [f"- {len(ma_roles) - 30} additional M&A-role records: inspect candidates.csv.", ""]
     material=[c for c in candidates if _active_common(c) and (
         c.event_type in MERGER_KINDS | {'LIQUIDATION_DISTRIBUTION'} or
         (c.event_type == 'DEBT_RESTRUCTURING' and c.event_terms.get('materiality') == 'STRUCTURAL') or
