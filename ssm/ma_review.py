@@ -11,9 +11,10 @@ def issuer_role(text: str, issuer_name: str = "") -> tuple[str, str]:
     t = re.sub(r"\s+", " ", text)
     name = re.escape(issuer_name.strip()) if issuer_name else None
     issuer = r"(?:\bthe Company\b|\bwe\b|\bour company\b" + (r"|\b" + name + r"\b" if name else "") + r")"
-    asset = (r".{0,160}\b(?:acquired|purchased|purchase of|asset acquisition of)\b.{0,130}"
+    asset = (r".{0,160}\b(?:acquire|acquired|purchased|purchase of|"
+             r"completed (?:the )?acquisition of|asset acquisition of)\b.{0,150}"
              r"\b(?:real (?:and personal )?property|facility|facilities|manufacturing plant|"
-             r"equipment|land|production assets|assets)\b")
+             r"equipment|land|production assets|assets|the Property)\b")
     buyer = (r".{0,120}\b(?:completed|consummated|closed)\s+(?:its|the|a|our)?\s*"
              r"(?:previously announced\s*)?(?:acquisition|merger)\s+(?:of|with)\b")
     target = r".{0,140}\b(?:will be acquired by|to be acquired by|has been acquired by|is being acquired by)\b"
