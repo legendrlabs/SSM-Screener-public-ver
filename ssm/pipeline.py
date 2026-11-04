@@ -14,7 +14,7 @@ from .securities import resolve_security
 from .recapitalization import reconcile_capital_context
 from .capital_evidence import completed_warrant_exercise_evidence
 from .ma_discovery import TENDER_FORMS, name_index, discover
-from .ma_review import issuer_role, variable_tender_terms
+from .ma_review import issuer_role, variable_tender_terms, offer_spread_gate
 from .financial_recapitalization import financial_capital_contexts
 
 OFFERING_FORMS = {"S-1", "S-3", "424B3", "424B5"}
@@ -601,7 +601,22 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
                         existing.event_sources.append(url)
                 existing.event_terms.setdefault("third_party_discovery", linked.event_terms)
                 continue
+            # Reuse the issuer's own quote solely for a gross-spread screen.
+            # This does not transfer FD or market capitalization from another firm.
+            linked.price = existing.price
+            linked.price_as_of = existing.price_as_of
             out.remove(existing)
+        spread_review = offer_spread_gate(
+            linked.event_terms, linked.price, event_type=linked.event_type,
+            event_status=linked.event_status, price_as_of=linked.price_as_of,
+            max_quote_age_days=cfg.get("market_data_max_age_days", 3))
+        if spread_review is not None:
+            gate, reason, spread = spread_review
+            if spread is not None:
+                linked.event_terms["gross_cash_spread_pct"] = spread
+            if gate == "REJECT":
+                linked.gate_status = linked.bucket = "REJECT"
+                linked.data_warnings.append(reason)
         out.append(linked)
 
     # A processing exception should be retried on the next incremental run,
