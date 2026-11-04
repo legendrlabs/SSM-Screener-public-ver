@@ -19,6 +19,10 @@ def test_asset_acquisition_issuer_is_buyer_not_merger_target():
     c = Candidate(ticker="GENERIC", event_type="ASSET_SALE_ACQUISITION",
                   event_terms={"ma_role":role, "asset_acquisition_financing_review_required": True})
     assert evaluate_gates(c, CFG)[0] == "DATA_HOLD"
+    sec_style = ("The Company agreed to acquire from the Seller certain real and personal "
+                 "property in Iowa. On October 30, 2026 the Company completed the acquisition "
+                 "of the Property and issued preferred shares and a secured note.")
+    assert issuer_role(sec_style, "Edible Garden AG Incorporated")[0] == "ASSET_BUYER"
 
 def test_surviving_issuer_acquirer_completed_is_excluded():
     body = ("Isabella Bank Corporation completed its previously announced acquisition "
