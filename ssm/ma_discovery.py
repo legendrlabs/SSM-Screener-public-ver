@@ -7,6 +7,7 @@ from __future__ import annotations
 import html
 import re
 from .models import Candidate
+from .ma_review import variable_tender_terms
 
 TENDER_FORMS = frozenset({
     "SC TO-C", "SC TO-T", "SC TO-T/A", "SC 14D9", "SC 14D9/A",
@@ -101,9 +102,14 @@ def extract_terms(text, form):
              "expected_closing": "UNVERIFIED", "preferred_convertibles_warrants": "UNVERIFIED",
              "fd_review_required": True,
              "terms_source": "SEC primary text; terms not independently reconciled"}
+    # Variable aggregate tenders have NO assured per-share entitlement;
+    # the final debt and outstanding/fully-diluted share count are unknown.
+    variable = variable_tender_terms(t)
+    if variable:
+        terms.update(variable)
     # Reject nominal/par-value clauses even if a nearby unrelated sentence says cash.
     # Price and cash entitlement must be in the same bounded clause.
-    for m in re.finditer(r"\$\s*(\d{1,5}(?:\.\d+)?)\s+per\s+(?:common\s+)?share\b", t, re.I):
+    for m in re.finditer(r"\$\s*(\d{1,5}(?:\.\d+)?)\s+per\s+(?:common\s+)?share\b", t, re.I) if not variable else []:
         clause_start = max(t.rfind(".", 0, m.start()), t.rfind(";", 0, m.start()), t.rfind(":", 0, m.start()))
         clause_end_candidates = [p for p in (t.find(".", m.end()), t.find(";", m.end())) if p >= 0]
         clause_end = min(clause_end_candidates) if clause_end_candidates else len(t)
@@ -111,7 +117,8 @@ def extract_terms(text, form):
         if re.search(r"\b(?:par value|stated value|nominal value)\b", context, re.I):
             continue
         if re.search(r"\b(?:in cash|payable in cash|cash tender offer)\b", context, re.I):
-            terms.update(cash_per_share_usd=float(m.group(1)), consideration_type="CASH")
+            terms.update(cash_per_share_usd=float(m.group(1)), cash_per_share_status="FIXED",
+                         consideration_type="CASH")
             break
     if re.search(r"\b(?:stock|share)\s+(?:consideration|exchange ratio)\b", t, re.I):
         terms["consideration_type"] = "CASH_AND_STOCK_UNVERIFIED" if terms["cash_per_share_usd"] else "STOCK_UNVERIFIED"
@@ -179,7 +186,9 @@ def discover(sec, filing, index, *, text=None):
     out.event_type = "M_AND_A_DISCOVERY"
     out.event_summary = "Source-linked tender/merger counterparty; independent target diligence required"
     out.event_sources = [source]
-    out.event_terms = {**terms, "subject_company_name_as_matched": matched_name,
+    out.event_terms = {**terms, "ma_role": "TARGET",
+                       "role_evidence": "SEC form subject company uniquely linked to target CIK",
+                       "subject_company_name_as_matched": matched_name,
                        "subject_cik": str(int(target["cik"])),
                        "filing_cik": str(int(filing["cik"])),
                        "discovery_accession": acc, "counterparty_identification": identity,
