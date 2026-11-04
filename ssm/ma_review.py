@@ -64,7 +64,7 @@ def offer_spread_gate(terms: dict, price: float | None, *,
                       price_as_of: str | None = None,
                       max_quote_age_days: int = 3, today: date | None = None):
     """Returns (status, reason, gross_spread_pct), or None when not a target merger."""
-    if terms.get("ma_role") != "TARGET" or "MERGER" not in event_type:
+    if terms.get("ma_role") != "TARGET" or not ("MERGER" in event_type or event_type == "M_AND_A_DISCOVERY"):
         return None
     if event_status in {"TERMINAL", "COMPLETED", "CANCELLED", "TERMINATED"}:
         return ("EXCLUDED", "Transaction already completed/cancelled; no arbitrage entry.", None)
