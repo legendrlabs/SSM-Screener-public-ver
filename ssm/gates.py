@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import date
 from .models import Candidate
+from .ma_review import offer_spread_gate
 
 def _age_days(iso_date, today=None):
     if not iso_date: return None
@@ -11,6 +12,26 @@ def evaluate_gates(c: Candidate, cfg):
     reasons=[]
     if c.security_type not in {'COMMON_EQUITY', 'UNKNOWN'}: return 'EXCLUDED', [f'{c.security_type} security is outside the common-equity universe.']
     if c.event_status in {'TERMINAL', 'CANCELLED'}: return 'EXCLUDED', [f'Event status {c.event_status}; excluded from active research candidates.']
+    role = c.event_terms.get("ma_role")
+    if role == "ACQUIRER" and c.event_status in {"COMPLETED", "TERMINAL"}:
+        return "EXCLUDED", ["Issuer is the completed/surviving acquirer, not an unsettled cash-merger target."]
+    if role == "ASSET_BUYER" and c.event_terms.get("asset_acquisition_financing_review_required"):
+        return "DATA_HOLD", ["Asset purchase financed by notes/preferred/equity: not a cash takeout of this issuer; capital and FD remain unresolved."]
+    if c.event_terms.get("variable_offer_review_required"):
+        return "DATA_HOLD", ["Aggregate tender formula requires final record-date liabilities, outstanding shares and FD, not an indicative fixed share price."]
+    spread_check = offer_spread_gate(
+        c.event_terms, c.price, event_type=c.event_type,
+        event_status=c.event_status, price_as_of=c.price_as_of,
+        max_quote_age_days=cfg.get("market_data_max_age_days", 3))
+    if spread_check is not None:
+        gate, reason, spread = spread_check
+        if spread is not None:
+            c.event_terms["gross_cash_spread_pct"] = spread
+        # Exclude negative spreads and hold positive spreads for conditions;
+        # never permit a fixed-cash deal to PASS on price alone.
+        if gate != "DATA_HOLD" or (role == "TARGET" and c.event_type in {
+                "MERGER_CASH", "MERGER_UNVERIFIED", "MERGER_CASH_CVR"}):
+            return gate, [reason]
     if c.event_terms.get('economics_reconciliation_required'):return 'DATA_HOLD',['Latest transaction consideration amendment is unresolved.']
     if c.event_terms.get('post_transaction_ticker', c.ticker) != c.ticker: return 'DATA_HOLD', [f"Listing changed to {c.event_terms['post_transaction_ticker']}; ticker, price and share units require reconciliation."]
     if c.event_terms.get('capital_counts_require_reconciliation'): return 'DATA_HOLD', ['Completed-merger capital counts require reconciliation with current common shares and outstanding instruments.']
