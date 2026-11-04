@@ -1,5 +1,5 @@
 from __future__ import annotations
-import csv, json, os
+import csv, json, os, re
 from pathlib import Path
 from .models import Candidate, Dilution
 from .event_rules import classify_event
