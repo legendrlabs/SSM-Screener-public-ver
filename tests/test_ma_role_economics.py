@@ -37,7 +37,7 @@ def test_fixed_cash_target_above_price_is_not_profitable_arbitrage():
     assert role == "TARGET"
     candidate = Candidate(ticker="ANY", security_type="COMMON_EQUITY",
                           event_type="MERGER_CASH", event_status="SIGNED",
-                          price=14.30, price_as_of="2026-11-05",
+                          price=14.30, price_as_of=date.today().isoformat(),
                           event_terms={"ma_role": "TARGET", "cash_per_share_usd": 14.25,
                                        "cash_per_share_status": "FIXED",
                                        "consideration_type": "CASH"})
