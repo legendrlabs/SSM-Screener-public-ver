@@ -20,3 +20,24 @@ def test_unresolved_cap_table_does_not_report_complete_fd_economics(tmp_path):
     assert dilution['near_fd_shares'] == ''
     assert dilution['strict_fd_shares'] == ''
     assert json.loads((tmp_path / 'quality.json').read_text())['SAFE_TO_ACT'] is False
+
+
+def test_unverified_cash_amount_does_not_crash_report(tmp_path):
+    from ssm.models import Candidate
+    from ssm.report import _terms, write_outputs
+    for amount in (None, "UNVERIFIED"):
+        c = Candidate(ticker="NULLCASH", event_terms={
+            "consideration_type": "UNVERIFIED",
+            "cash_per_share_usd": amount,
+        })
+        assert "Cash at closing: UNVERIFIED" in _terms(c)
+        write_outputs([c], {"max_candidates": 5}, tmp_path)
+        assert "SAFE_TO_ACT" in json.loads((tmp_path / "quality.json").read_text())
+        assert (tmp_path / "latest.md").exists()
+
+
+def test_verified_cash_amount_still_formats(tmp_path):
+    from ssm.models import Candidate
+    from ssm.report import _terms
+    c = Candidate(ticker="CASH", event_terms={"cash_per_share_usd": 36.5})
+    assert "Cash at closing: $36.50/share" in _terms(c)
