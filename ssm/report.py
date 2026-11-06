@@ -65,7 +65,9 @@ def _terms(c):
         if t.get('ownership_subject_to_closing_adjustments'): parts.append('Pro forma ownership subject to closing adjustments; not a current FD share count')
     if t.get('cvr_basis'): parts.append(t['cvr_basis'] + '; payment may be zero')
     if t.get('cvr_distribution_status') == 'CONTEMPLATED': parts.append('CVR distribution contemplated, subject to declaration and closing')
-    if 'cash_per_share_usd' in t: parts.append(f"Cash at closing: ${t['cash_per_share_usd']:.2f}/share")
+    if 'cash_per_share_usd' in t:
+        cash = t['cash_per_share_usd']
+        parts.append(f"Cash at closing: ${cash:.2f}/share" if isinstance(cash, (int, float)) and not isinstance(cash, bool) else "Cash at closing: UNVERIFIED (per-share amount unresolved)")
     if 'stock_exchange_ratio' in t:
         security = t.get('stock_consideration_ticker') or t.get('stock_consideration_security', 'consideration security')
         parts.append(f"Stock at closing: {t['stock_exchange_ratio']:g} shares of {security} per existing common share")
