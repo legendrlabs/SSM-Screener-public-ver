@@ -132,6 +132,16 @@ def event_terms(text, kind, *, cleaned=False):
             if symbol:
                 terms['post_transaction_ticker'] = symbol.group(1).upper()
     if kind == 'LIQUIDATION_DISTRIBUTION':
+        # Require explicit past-tense evidence about the issuer's common shares.
+        # A planned delisting or an unrelated preferred class is insufficient.
+        terminal_common = (
+            r'(?:common (?:shares|stock)|shares of common stock).{0,100}'
+            r'(?:were|have been|are now) (?:cancelled|canceled|extinguished)'
+            r'|(?:trading in|trading of) (?:the )?(?:company.s )?common (?:shares|stock)'
+            r'.{0,100}(?:ceased|ended|terminated)'
+        )
+        if re.search(terminal_common, t, re.I):
+            terms['liquidation_common_trading_terminated'] = True
         distribution = None
         for clause in liquidation_evidence(t):
             declaration = re.search(r'\b(?:approved|approves|declared|declares)\b(?P<gap>.{0,100}?)liquidating (?:cash )?distribution', clause, re.I)
