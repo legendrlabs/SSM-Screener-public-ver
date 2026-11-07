@@ -49,7 +49,7 @@ def test_fixed_cash_target_above_price_is_not_profitable_arbitrage():
                                event_type=candidate.event_type,
                                event_status=candidate.event_status,
                                price_as_of=candidate.price_as_of,
-                               today=date(2026, 11, 5))
+                               today=date.today())
     assert result[0] == "REJECT" and result[2] < 0
     assert evaluate_gates(candidate, CFG)[0] == "REJECT"
 
