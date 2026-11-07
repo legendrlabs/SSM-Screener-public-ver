@@ -11,6 +11,10 @@ def _age_days(iso_date, today=None):
 def evaluate_gates(c: Candidate, cfg):
     reasons=[]
     if c.security_type not in {'COMMON_EQUITY', 'UNKNOWN'}: return 'EXCLUDED', [f'{c.security_type} security is outside the common-equity universe.']
+    # An explicitly verified terminal liquidation is not an investable WATCH.
+    # Do not infer completion merely because a *planned* trading date passed.
+    if c.event_type == 'LIQUIDATION_DISTRIBUTION' and c.event_terms.get('liquidation_common_trading_terminated'):
+        return 'EXCLUDED', ['Common shares ceased trading/cancelled in completed liquidation; residual trust distributions are not a new common-equity entry.']
     if c.event_status in {'TERMINAL', 'CANCELLED'}: return 'EXCLUDED', [f'Event status {c.event_status}; excluded from active research candidates.']
     role = c.event_terms.get("ma_role")
     if role == "ACQUIRER" and c.event_status in {"COMPLETED", "TERMINAL"}:
