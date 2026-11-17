@@ -209,7 +209,7 @@ def discover(sec, filing, index, *, text=None):
     if form in OWNERSHIP_PROPOSAL_FORMS and subject is None:
         return None
     extra_sources = []
-    if form in OWNERSHIP_PROPOSAL_FORMS and re.search(r"\bexhibit\b", plain_text(text), re.I):
+    if form in OWNERSHIP_PROPOSAL_FORMS | TENDER_FORMS and re.search(r"\bexhibits?\b", plain_text(text), re.I):
         # A proposal letter may be attached rather than repeated in Item 4.
         for doc in sec.filing_documents(filing["cik"], filing.get("accession"), filing.get("index_url"))[:6]:
             if doc["type"].startswith("EX-99"):
@@ -218,9 +218,11 @@ def discover(sec, filing, index, *, text=None):
     readable = plain_text(text)
     terms = extract_terms(readable, form)
     if terms is None:
+        filing["_discovery_unresolved_reason"] = "material_transaction_terms_not_resolved"
         return None
     target, matched_name, identity = subject or _match_target(readable, form, index, filing["cik"])
     if target is None:
+        filing["_discovery_unresolved_reason"] = "listed_subject_identity_not_unique_or_unavailable"
         return None
     acc = filing.get("accession")
     source = ("https://www.sec.gov/Archives/" + filing["filename"].lstrip("/")

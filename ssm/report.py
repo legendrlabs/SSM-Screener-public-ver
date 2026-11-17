@@ -150,6 +150,7 @@ def write_outputs(candidates,cfg,out_dir):
     q["ma_ownership_budget_exceeded_count"] = cfg.get("_ma_ownership_budget_exceeded_count", 0)
     q["ma_unmatched_form_count"] = cfg.get("_ma_discovery_form_unmatched_count", 0)
     q["ma_budget_exceeded_count"] = cfg.get("_ma_8k_budget_exceeded_count", 0)
+    q["ma_unresolved_filings"] = cfg.get("_ma_unresolved_filings", [])
     q["ma_discovery_partial"] = cfg.get("_ma_discovery_partial", False)
     q["scan_scope"] = scope
     q["incremental_source_run_id"] = cfg.get("_incremental_source_run_id")
@@ -173,6 +174,9 @@ def write_outputs(candidates,cfg,out_dir):
     q['financial_review_incomplete_count']=sum(_active_common(c) and not c.financial_review_complete for c in candidates)
     audit=summarize_invariants(candidates)
     q['invariant_violation_count']=sum(r['violations'] for r in audit['invariants'].values())
+    if q['invariant_violation_count'] or q['ma_discovery_partial']:
+        safe = q['SAFE_TO_ACT'] = False
+    q['quality_status'] = 'REVIEW_REQUIRED' if q['invariant_violation_count'] or q['ma_discovery_partial'] else 'CHECKS_PASSED'
     (out/'validation_audit.json').write_text(json.dumps(audit,indent=2),encoding='utf-8')
     (out/"quality.json").write_text(json.dumps(q,indent=2),encoding="utf-8")
     top=[c for c in candidates if c.gate_status=="PASS" and c.bucket=="A_RESEARCH_NOW"][:cfg["max_candidates"]]
@@ -223,6 +227,10 @@ def write_outputs(candidates,cfg,out_dir):
                f"{q['ma_ownership_budget_exceeded_count']} ownership filings outside inspection budget; "
                f"{q['ma_unmatched_form_count']} third-party forms unresolved or not retrieved. "
                "No inferred PASS.", ""]
+    for unresolved in q['ma_unresolved_filings'][:50]:
+        md.append("- Unresolved source: " + str(unresolved.get('form', '')) + " / "
+                  + str(unresolved.get('accession', '')) + "; " + str(unresolved.get('reason', ''))
+                  + "; " + str(unresolved.get('source', '')))
     ma_roles = [c for c in candidates if
                 c.event_terms.get("ma_role") in {"ASSET_BUYER", "ACQUIRER", "TARGET"}
                 or c.event_terms.get("variable_offer_review_required")]
