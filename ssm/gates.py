@@ -16,6 +16,8 @@ def evaluate_gates(c: Candidate, cfg):
     if c.event_type == 'LIQUIDATION_DISTRIBUTION' and c.event_terms.get('liquidation_common_trading_terminated'):
         return 'EXCLUDED', ['Common shares ceased trading/cancelled in completed liquidation; residual trust distributions are not a new common-equity entry.']
     if c.event_status in {'TERMINAL', 'CANCELLED'}: return 'EXCLUDED', [f'Event status {c.event_status}; excluded from active research candidates.']
+    if c.event_terms.get("nonbinding_proposal_review_required"):
+        return "DATA_HOLD", ["Non-binding acquisition proposal; definitive terms, financing and approvals remain unverified."]
     role = c.event_terms.get("ma_role")
     if role == "ACQUIRER" and c.event_status in {"COMPLETED", "TERMINAL"}:
         return "EXCLUDED", ["Issuer is the completed/surviving acquirer, not an unsettled cash-merger target."]

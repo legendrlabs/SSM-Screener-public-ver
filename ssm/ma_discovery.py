@@ -9,6 +9,8 @@ import re
 from .models import Candidate
 from .ma_review import variable_tender_terms
 
+OWNERSHIP_PROPOSAL_FORMS = frozenset({"SC 13D", "SC 13D/A", "SCHEDULE 13D", "SCHEDULE 13D/A"})
+
 TENDER_FORMS = frozenset({
     "SC TO-C", "SC TO-T", "SC TO-T/A", "SC 14D9", "SC 14D9/A",
 })
@@ -87,13 +89,44 @@ def _match_target(text, form, index, filer_cik):
     return None, None, None
 
 
+def _ownership_subject(body, index):
+    """Resolve only the declared issuer, never the reporting person's identity.
+
+    Modern XML uses issuerName/issuerCik; legacy HTML has a cover caption.
+    All declared identities must agree, and ambiguous classes remain unresolved.
+    """
+    names = re.findall(r"<(?:\w+:)?issuerName\b[^>]*>(.*?)</(?:\w+:)?issuerName>", body, re.I | re.S)
+    ciks = re.findall(r"<(?:\w+:)?issuerCik\b[^>]*>\s*(\d+)\s*</(?:\w+:)?issuerCik>", body, re.I)
+    text = plain_text(body)
+    names.extend(re.findall(r"([^\n]+)\s*\n\s*\(\s*Name of Issuer\s*\)", text, re.I))
+    # Rendered structured ownership forms use label followed by issuer value.
+    names.extend(re.findall(r"Issuer Name\s*[:\n]\s*([^\n]+)", text, re.I))
+    matches = [index.get(normalized(plain_text(n).strip())) for n in names]
+    if any(m is None for m in matches):
+        return None
+    declared_ciks = {str(int(c)) for c in ciks}
+    declared_ciks.update(str(int(m["cik"])) for m in matches)
+    if len(declared_ciks) != 1:
+        return None
+    cik = declared_ciks.pop()
+    metas = {m["ticker"]: m for m in index.values() if str(int(m["cik"])) == cik}
+    if len(metas) != 1:
+        return None
+    meta = next(iter(metas.values()))
+    return meta, meta["name"], "ownership_declared_issuer_sec_exchange_identity"
+
+
 def extract_terms(text, form):
     """Conservative transaction facts: unknown is never represented as absent."""
     t = re.sub(r"\s+", " ", text)
     lower = t.lower()
     is_merger = "merger agreement" in lower or "agreement and plan of merger" in lower
     is_tender = "tender offer" in lower or "schedule to" in lower
-    if not (is_merger or is_tender):
+    is_proposal = form in OWNERSHIP_PROPOSAL_FORMS and bool(re.search(
+        r"\b(?:non[ -]?binding (?:proposal|offer)|going[ -]private (?:proposal|transaction)|"
+        r"proposal.{0,100}(?:acquire|purchase).{0,100}(?:shares|stock)|"
+        r"non[ -]?binding letter.{0,300}(?:take.{0,40}private|acquire.{0,100}shares))\b", t, re.I))
+    if not (is_merger or is_tender or is_proposal):
         return None
     terms = {"consideration_type": "UNVERIFIED", "cash_per_share_usd": None,
              "financing_condition": "UNVERIFIED", "regulatory_approval": "UNVERIFIED",
@@ -152,6 +185,15 @@ def extract_terms(text, form):
     terms["deal_status"] = ("UNVERIFIED" if cancelled and active_tender else
                             "TERMINATED" if cancelled else "COMPLETED" if closed
                             else "SIGNED" if signed else "ANNOUNCED")
+    if is_proposal:
+        # A proposal price is never an enforceable common-share entitlement.
+        terms["deal_status"] = "PRELIMINARY"
+        terms["nonbinding_proposal_review_required"] = True
+        price = re.search(r"(?:price of|offer of|for)\s+\$\s*(\d{1,5}(?:\.\d+)?)\s+per\s+(?:common\s+)?share\b", t, re.I)
+        if price:
+            terms["proposed_price_per_share_usd"] = float(price.group(1))
+        if terms["cash_per_share_usd"] is not None:
+            terms["cash_per_share_status"] = "PROPOSED_NONBINDING"
     if terms["deal_status"] == "COMPLETED" and not closed:
         terms["deal_status"] = "ANNOUNCED"
     return terms
@@ -159,15 +201,25 @@ def extract_terms(text, form):
 
 def discover(sec, filing, index, *, text=None):
     form = filing.get("form", "")
-    if form not in TENDER_FORMS | {"8-K", "8-K/A"}:
+    if form not in TENDER_FORMS | OWNERSHIP_PROPOSAL_FORMS | {"8-K", "8-K/A"}:
         return None
     if text is None:
         text = sec.submission_text(filing["filename"])
+    subject = _ownership_subject(text, index) if form in OWNERSHIP_PROPOSAL_FORMS else None
+    if form in OWNERSHIP_PROPOSAL_FORMS and subject is None:
+        return None
+    extra_sources = []
+    if form in OWNERSHIP_PROPOSAL_FORMS and re.search(r"\bexhibit\b", plain_text(text), re.I):
+        # A proposal letter may be attached rather than repeated in Item 4.
+        for doc in sec.filing_documents(filing["cik"], filing.get("accession"), filing.get("index_url"))[:6]:
+            if doc["type"].startswith("EX-99"):
+                text += "\n" + sec.submission_text(doc["url"])
+                extra_sources.append(doc["url"])
     readable = plain_text(text)
     terms = extract_terms(readable, form)
     if terms is None:
         return None
-    target, matched_name, identity = _match_target(readable, form, index, filing["cik"])
+    target, matched_name, identity = subject or _match_target(readable, form, index, filing["cik"])
     if target is None:
         return None
     acc = filing.get("accession")
@@ -185,7 +237,7 @@ def discover(sec, filing, index, *, text=None):
     out.event_proof = 2 if terms["deal_status"] == "SIGNED" else 1
     out.event_type = "M_AND_A_DISCOVERY"
     out.event_summary = "Source-linked tender/merger counterparty; independent target diligence required"
-    out.event_sources = [source]
+    out.event_sources = [source] + extra_sources
     out.event_terms = {**terms, "ma_role": "TARGET",
                        "role_evidence": "SEC form subject company uniquely linked to target CIK",
                        "subject_company_name_as_matched": matched_name,
