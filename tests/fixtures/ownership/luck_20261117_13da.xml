@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?><edgarSubmission xmlns="http://www.sec.gov/edgar/schedule13D" xmlns:com="http://www.sec.gov/edgar/common">
+  <schemaVersion>X0202</schemaVersion>
+<headerData>
+    <submissionType>SCHEDULE 13D/A</submissionType>
+    <previousAccessionNumber>0001104659-21-153624</previousAccessionNumber>
+    <filerInfo>
+      <filer>
+        <filerCredentials>
+          <!-- Field: Pseudo-Tag; ID: Name; Data: Shannon Thomas F. -->
+          <cik>0001882143</cik>
+          <ccc>XXXXXXXX</ccc>
+        </filerCredentials>
+      </filer>
+      <liveTestFlag>LIVE</liveTestFlag>
+
+
+
+    </filerInfo>
+  </headerData>
+  <formData>
+    <coverPageHeader>
+      <amendmentNo>3</amendmentNo>
+      <securitiesClassTitle>Class A common stock, par value $0.0001 per share</securitiesClassTitle>
+      <dateOfEvent>11/16/2026</dateOfEvent>
+      <previouslyFiledFlag>false</previouslyFiledFlag>
+      <issuerInfo>
+        <issuerCIK>0001840572</issuerCIK>
+        <issuerCusips>
+          <issuerCusipNumber>10258P102</issuerCusipNumber>
+        </issuerCusips>
+        <issuerName>Lucky Strike Entertainment Corporation</issuerName>
+        <address>
+          <com:street1>7313 Bell Creek Road</com:street1>
+          <com:city>Mechanicsville</com:city>
+          <com:stateOrCountry>VA</com:stateOrCountry>
+          <com:zipCode>23111</com:zipCode>
+        </address>
+      </issuerInfo>
+      <authorizedPersons>
+        <notificationInfo>
+          <personName>Matthew Kane</personName>
+          <personPhoneNum>845-729-9611</personPhoneNum>
+          <personAddress>
+            <com:street1>7313 Bell Creek Road</com:street1>
+            <com:city>Mechanicsville</com:city>
+            <com:stateOrCountry>VA</com:stateOrCountry>
+            <com:zipCode>23111</com:zipCode>
+          </personAddress>
+        </notificationInfo>
+      </authorizedPersons>
+    </coverPageHeader>
+    <reportingPersons>
+      <reportingPersonInfo>
+        <reportingPersonCIK>0001882143</reportingPersonCIK>
+        <reportingPersonNoCIK>N</reportingPersonNoCIK>
+        <reportingPersonName>Thomas F. Shannon</reportingPersonName>
+        <fundType>OO</fundType>
+        <legalProceedings>N</legalProceedings>
+        <citizenshipOrOrganization>X1</citizenshipOrOrganization>
+        <soleVotingPower>82622289.00</soleVotingPower>
+        <sharedVotingPower>0.00</sharedVotingPower>
+        <soleDispositivePower>82622289.00</soleDispositivePower>
+        <sharedDispositivePower>0.00</sharedDispositivePower>
+        <aggregateAmountOwned>82622289.00</aggregateAmountOwned>
+        <isAggregateExcludeShares>N</isAggregateExcludeShares>
+        <percentOfClass>52.3</percentOfClass>
+        <typeOfReportingPerson>IN</typeOfReportingPerson>
+        <commentContent>Amount in rows 7 and 9 consists of 55,519,437 shares of Class B Common Stock held by Thomas F. Shannon, stock options currently exercisable for 16,283,853 shares of Class B Common Stock, 5,394,000 shares of Class A Common Stock held by the Thomas F. Shannon 2025 GRAT, and stock options currently exercisable or scheduled to vest within 60 days for 5,424,999 shares of Class A Common Stock.
+
+Each share of Class B Common Stock is entitled to ten votes per share, and each share of Class A Common Stock is entitled to one vote per share.
+
+The percent of class assumes the conversion of all of the Reporting Person's Class B Common Stock into Class A Common Stock and stock options beneficially owned by the Reporting Person, resulting in a total of 158,036,047 shares of Class A Common Stock (which reflects the sum of (i) 80,807,758 shares of Class A Common Stock outstanding as of October 30, 2026, (ii) 71,803,290 shares of Class A Common Stock issuable upon conversion of Class B Common Stock held by, or issuable upon exercise of stock options held by, the Reporting Person and (iii) 5,424,999 shares of Class A Common Stock issuable upon exercise of stock options currently exercisable or scheduled to vest within 60 days).</commentContent>
+      </reportingPersonInfo>
+    </reportingPersons>
+    <items1To7>
+      <item1>
+        <securityTitle>Class A common stock, par value $0.0001 per share</securityTitle>
+        <issuerName>Lucky Strike Entertainment Corporation</issuerName>
+        <issuerPrincipalAddress>
+          <com:street1>7313 Bell Creek Road</com:street1>
+          <com:city>Mechanicsville</com:city>
+          <com:stateOrCountry>VA</com:stateOrCountry>
+          <com:zipCode>23111</com:zipCode>
+        </issuerPrincipalAddress>
+        <commentText>This Amendment No. 3 amends and supplements the Schedule 13D filed with the Securities and Exchange Commission (the "SEC") on December 27, 2021, as amended by Amendment No. 1 to the Schedule 13D filed with the SEC on January 27, 2023 and Amendment No. 2 to the Schedule 13D filed with the SEC on March 14, 2023. Except as otherwise specified in this Amendment No. 3, all items left blank remain unchanged in all material respects. Capitalized terms used herein but not defined have the respective meanings ascribed to them in the Schedule 13D, as amended.</commentText>
+      </item1>
+      <item4>
+        <transactionPurpose>Item 4 of the Schedule 13D is amended and supplemented as follows:
+
+On November 16, 2026, Mr. Shannon delivered a non-binding letter (the "Proposal Letter") to the board of directors (the "Board") of Lucky Strike Entertainment Corporation (the "Issuer") proposing to take the Issuer private at a price of $4.35 per share of Class A Common Stock (the "Potential Transaction").
+
+As described in the Proposal Letter, Mr. Shannon expects that the Board will appoint a special committee of independent and disinterested directors to consider his proposal and make a recommendation to the Board. Mr. Shannon will not move forward with the Potential Transaction unless it is approved by such a special committee. In addition, the Potential Transaction will be subject to a non-waivable condition requiring the approval of holders of a majority of the shares of the Class A Common Stock not owned by Mr. Shannon or his affiliates. The Proposal Letter also indicated that the Potential Transaction would be subject to a number of conditions, including, among others, the negotiation and execution of a definitive agreement and other related agreements mutually acceptable in form and substance to Mr. Shannon and the Issuer.
+
+There can be no assurance that a definitive agreement with respect to the Potential Transaction will be executed or, if executed, whether the Potential Transaction will be consummated.
+
+No legally binding obligation with respect to the Proposal Letter or the Potential Transaction will arise until such time, if ever, as a binding definitive agreement has been executed by the relevant parties. There is also no certainty as to whether, or when, the Issuer may respond to the Proposal Letter, or as to the time table for execution of any definitive agreement. Mr. Shannon reserves the right to modify or withdraw his proposal set forth in the Proposal Letter at any time and to cease discussions and negotiations at any time.
+
+Neither the Proposal Letter nor this Schedule 13D Amendment is meant to be an offer to purchase or a solicitation of any offer to sell shares of Class A Common Stock or other securities.
+
+The foregoing description of the Proposal Letter is not intended to be complete and is qualified in its entirety by reference to the full text of the Proposal Letter, which is attached as Exhibit 9 hereto, and is incorporated by reference herein.
+
+The Potential Transaction may result in one or more of the actions specified in clauses (a) to (j) of Item 4 of this Schedule 13D Amendment, including, without limitation, the acquisition of additional securities of the Issuer, a merger or other extraordinary transaction involving the Issuer, the delisting of Class A Common Stock from the New York Stock Exchange and the Class A Common Stock becoming eligible for termination of registration pursuant to Section 12(g)(4) of the Securities Exchange Act of 1934, as amended.</transactionPurpose>
+      </item4>
+      <item5>
+        <percentageOfClassSecurities>See Items 11 and 13 of the cover page.</percentageOfClassSecurities>
+        <numberOfShares>See Items 7, 8, 9 and 10 of the cover page.</numberOfShares>
+        <transactionDesc>The Reporting Person has not effected any transactions of the Class A Common Stock during the 60 days preceding the date of this report.</transactionDesc>
+      </item5>
+      <item6>
+        <contractDescription>Item 6 of the Schedule 13D is amended and supplemented as follows:
+
+The information set forth in Item 4 of this Amendment No. 3 to Schedule 13D is incorporated herein by reference.</contractDescription>
+      </item6>
+      <item7>
+        <filedExhibits>Exhibit 9 Proposal Letter, dated November 16, 2026</filedExhibits>
+      </item7>
+    </items1To7>
+    <signatureInfo>
+      <signaturePerson>
+        <signatureReportingPerson>Thomas F. Shannon</signatureReportingPerson>
+        <signatureDetails>
+          <signature>/s/ Thomas F. Shannon</signature>
+          <title>Thomas F. Shannon</title>
+          <date>11/17/2026</date>
+        </signatureDetails>
+      </signaturePerson>
+    </signatureInfo>
+  </formData>
+
+</edgarSubmission>

@@ -13,12 +13,12 @@ from .events import review_material_events, event_terms, event_status
 from .securities import resolve_security
 from .recapitalization import reconcile_capital_context
 from .capital_evidence import completed_warrant_exercise_evidence
-from .ma_discovery import TENDER_FORMS, name_index, discover
+from .ma_discovery import OWNERSHIP_PROPOSAL_FORMS, TENDER_FORMS, name_index, discover
 from .ma_review import issuer_role, variable_tender_terms, offer_spread_gate
 from .financial_recapitalization import financial_capital_contexts
 
 OFFERING_FORMS = {"S-1", "S-3", "424B3", "424B5"}
-OWNERSHIP_FORMS = {"SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A"}
+OWNERSHIP_FORMS = OWNERSHIP_PROPOSAL_FORMS | {"SC 13G", "SC 13G/A"}
 PROXY_FORMS = {"DEF 14A", "PRE 14A"}
 
 def load_json(path):
@@ -459,11 +459,13 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     cfg = load_json(config_path)
     previous_entries = {}
     previous_run_id = None
+    ownership_discovery_version = 0
     if incremental_state_path is not None:
         previous = load_json(incremental_state_path)
         if previous.get("schema_version") != 1 or not isinstance(previous.get("entries"), dict):
             raise ValueError("Incompatible incremental checkpoint; run full scan")
         previous_entries = previous["entries"]
+        ownership_discovery_version = previous.get("ownership_discovery_version", 0)
         previous_run_id = previous.get("run_id")
         if not previous_run_id:
             raise ValueError("Incremental checkpoint missing source run ID")
@@ -482,6 +484,9 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     ma_index = name_index(by_ticker)
     ma_linked = {}
     ma_reads = 0
+    ownership_reads = 0
+    ownership_budget_exceeded = 0
+    ownership_read_limit = max(0, min(200, int(cfg.get("ma_discovery_max_ownership_reads", 100))))
     ma_unmatched = 0
     ma_budget_exceeded = 0
     ma_read_limit = max(0, min(200, int(cfg.get("ma_discovery_max_acquirer_8k_reads", 80))))
@@ -496,12 +501,14 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     for raw in sec.recent_filings(days, cfg["event_forms"]):
         discovery_count += 1
         key = _filing_key(raw)
-        if key in encountered and incremental_state_path is not None:
+        if (key in encountered and incremental_state_path is not None
+                and not (raw.get("form") in OWNERSHIP_PROPOSAL_FORMS
+                         and ownership_discovery_version < 1)):
             continue
         new_discovery_count += 1
         encountered[key] = raw.get("filed") or date.today().isoformat()
         metas = by_cik.get(str(int(raw["cik"])), [])
-        if not metas and raw.get("form") not in TENDER_FORMS:
+        if not metas and raw.get("form") not in TENDER_FORMS | OWNERSHIP_PROPOSAL_FORMS:
             continue
         try:
             filing = sec.enrich_filing(str(int(raw["cik"])), raw)
@@ -517,12 +524,18 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         # text read. Never let the acquirer's market cap block this lookup.
         is_buyer_8k = (form in {"8-K", "8-K/A"}
                        and bool(_items(filing) & {"1.01", "2.01"}))
-        should_read = is_tender or (is_buyer_8k and ma_reads < ma_read_limit)
-        if is_buyer_8k and not is_tender and not should_read:
-            ma_budget_exceeded += 1
+        is_ownership = form in OWNERSHIP_PROPOSAL_FORMS
+        should_read = (is_ownership and ownership_reads < ownership_read_limit) or is_tender or (is_buyer_8k and ma_reads < ma_read_limit)
+        if (is_buyer_8k or is_ownership) and not should_read:
+            if is_ownership:
+                ownership_budget_exceeded += 1
+            else:
+                ma_budget_exceeded += 1
             # Do not claim an unchecked filing is processed in the delta ledger.
             encountered.pop(key, None)
         if should_read:
+            if is_ownership:
+                ownership_reads += 1
             if is_buyer_8k:
                 ma_reads += 1
             try:
@@ -594,7 +607,10 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
                 "MERGER_CASH", "MERGER_CASH_CVR", "MERGER_STOCK",
                 "MERGER_CASH_STOCK", "MERGER_UNVERIFIED", "MERGER_TERMINATED",
                 "TERMINAL_MERGER",
-            } and existing.event_review_complete:
+            } and existing.event_review_complete and not (
+                linked.event_terms.get("nonbinding_proposal_review_required")
+                and (linked.latest_event_date or "") >= (existing.latest_event_date or "")
+            ):
                 existing.discovery_status = "M&A_DISCOVERY_REVIEW_REQUIRED"
                 for url in linked.event_sources:
                     if url not in existing.event_sources:
@@ -645,8 +661,10 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     cfg["_ma_discovery_count"] = len(ma_linked)
     cfg["_ma_discovery_form_unmatched_count"] = ma_unmatched
     cfg["_ma_acquirer_8k_reads"] = ma_reads
+    cfg["_ma_ownership_reads"] = ownership_reads
+    cfg["_ma_ownership_budget_exceeded_count"] = ownership_budget_exceeded
     cfg["_ma_8k_budget_exceeded_count"] = ma_budget_exceeded
-    cfg["_ma_discovery_partial"] = bool(ma_budget_exceeded or ma_unmatched)
+    cfg["_ma_discovery_partial"] = bool(ma_budget_exceeded or ownership_budget_exceeded or ma_unmatched)
     cfg["_sec_discovery_mode"] = sec.last_discovery_mode or os.getenv("SSM_SEC_DISCOVERY_MODE", "auto")
     cfg["_scan_scope"] = "INCREMENTAL_DELTA" if incremental_state_path is not None else "FULL"
     cfg["_incremental_source_run_id"] = previous_run_id
@@ -654,6 +672,7 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     cfg["_new_filing_count"] = new_discovery_count
     cfg["_seen_filings"] = {
         "schema_version": 1, "ma_discovery_version": 1,
+        "ownership_discovery_version": 1,
         "run_id": os.environ.get("GITHUB_RUN_ID"),
         "entries": encountered,
         "last_full_completed_at_utc": None,

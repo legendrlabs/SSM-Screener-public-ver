@@ -71,6 +71,8 @@ def offer_spread_gate(terms: dict, price: float | None, *,
         return ("EXCLUDED", "Transaction already completed/cancelled; no arbitrage entry.", None)
     if terms.get("variable_offer_review_required"):
         return ("DATA_HOLD", "Variable tender amount: debt, record-date shares, and FD unresolved.", None)
+    if terms.get("nonbinding_proposal_review_required"):
+        return ("DATA_HOLD", "Non-binding proposal price is not assured cash entitlement.", None)
     fixed = terms.get("cash_per_share_usd")
     if (not isinstance(fixed, (int, float)) or fixed <= 0
             or terms.get("cash_per_share_status") not in {"FIXED", "FIXED_CONFIRMED"}

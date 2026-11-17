@@ -146,6 +146,8 @@ def write_outputs(candidates,cfg,out_dir):
         isinstance(c.event_terms.get("gross_cash_spread_pct"), (int, float))
         and c.event_terms["gross_cash_spread_pct"] <= 0 for c in candidates)
     q["ma_acquirer_8k_reads"] = cfg.get("_ma_acquirer_8k_reads", 0)
+    q["ma_ownership_reads"] = cfg.get("_ma_ownership_reads", 0)
+    q["ma_ownership_budget_exceeded_count"] = cfg.get("_ma_ownership_budget_exceeded_count", 0)
     q["ma_unmatched_form_count"] = cfg.get("_ma_discovery_form_unmatched_count", 0)
     q["ma_budget_exceeded_count"] = cfg.get("_ma_8k_budget_exceeded_count", 0)
     q["ma_discovery_partial"] = cfg.get("_ma_discovery_partial", False)
@@ -201,6 +203,10 @@ def write_outputs(candidates,cfg,out_dir):
             t = c.event_terms.get("third_party_discovery", c.event_terms)
             price = t.get("cash_per_share_usd")
             price_text = f"${price:g} cash per share (unreconciled)" if price is not None else "price unresolved"
+            if t.get("nonbinding_proposal_review_required"):
+                proposed = t.get("proposed_price_per_share_usd")
+                price_text = (f"${proposed:g} proposed per share (non-binding; not guaranteed cash)"
+                              if proposed is not None else "non-binding proposal; price unresolved")
             md += [
                 f"- **{c.ticker}** — {c.name} / {c.event_status} / gate {c.gate_status}; "
                 f"{price_text}; consideration {t.get('consideration_type', 'UNVERIFIED')}; "
@@ -214,7 +220,8 @@ def write_outputs(candidates,cfg,out_dir):
     if q["ma_discovery_partial"]:
         md += ["", "**M&A discovery coverage incomplete:** "
                f"{q['ma_budget_exceeded_count']} acquirer 8-K filings outside inspection budget; "
-               f"{q['ma_unmatched_form_count']} tender forms unresolved or not retrieved. "
+               f"{q['ma_ownership_budget_exceeded_count']} ownership filings outside inspection budget; "
+               f"{q['ma_unmatched_form_count']} third-party forms unresolved or not retrieved. "
                "No inferred PASS.", ""]
     ma_roles = [c for c in candidates if
                 c.event_terms.get("ma_role") in {"ASSET_BUYER", "ACQUIRER", "TARGET"}
