@@ -28,6 +28,17 @@ def issuer_role(text: str, issuer_name: str = "") -> tuple[str, str]:
         return "TARGET", "merger sub being merged into issuer"
     return "UNVERIFIED", "issuer/target direction not explicit"
 
+def completed_target_common_conversion(text):
+    """Actual issuer common-share conversion, never options/notes or a plan."""
+    t = re.sub(r"\s+", " ", text)
+    issuer_common = re.search(r"(?:common (?:stock|shares) of (?:the )?(?:Company|issuer)|"
+                              r"(?:Company|issuer)[’']s common (?:stock|shares))", t, re.I)
+    converted = re.search(r"\b(?:each |the )?(?:Shares?|common stock)\b[^.!?]{0,700}?"
+                          r"\b(?:was|were) (?:automatically )?converted (?:solely )?into "
+                          r"(?:the )?right to receive\b", t, re.I)
+    return bool(issuer_common and converted)
+
+
 def variable_tender_terms(text: str) -> dict:
     t = re.sub(r"\s+", " ", str(text))
     gross = re.search(

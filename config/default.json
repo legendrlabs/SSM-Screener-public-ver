@@ -46,7 +46,7 @@
   ],
   "late_move_1d_pct": 50,
   "late_move_5d_pct": 100,
-  "ma_discovery_max_acquirer_8k_reads": 80,
+  "ma_discovery_max_acquirer_8k_reads": null,
   "ma_tender_form_pages": 2,
-  "ma_discovery_max_ownership_reads": 100
+  "ma_discovery_max_ownership_reads": null
 }

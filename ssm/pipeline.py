@@ -3,7 +3,7 @@ import csv, json, os, re
 from pathlib import Path
 from .models import Candidate, Dilution
 from .progress import progress
-from .event_rules import classify_event
+from .event_rules import classify_event, MERGER_KINDS
 from .dilution import heuristic_extract_dilution, apply_override
 from .gates import evaluate_gates
 from .scoring import score_candidate, bucket_candidate
@@ -15,7 +15,7 @@ from .securities import resolve_security
 from .recapitalization import reconcile_capital_context
 from .capital_evidence import completed_warrant_exercise_evidence
 from .ma_discovery import OWNERSHIP_PROPOSAL_FORMS, TENDER_FORMS, name_index, discover
-from .ma_review import issuer_role, variable_tender_terms, offer_spread_gate
+from .ma_review import issuer_role, variable_tender_terms, offer_spread_gate, completed_target_common_conversion
 from .financial_recapitalization import financial_capital_contexts
 
 OFFERING_FORMS = {"S-1", "S-3", "424B3", "424B5"}
@@ -457,6 +457,55 @@ def _filing_key(raw):
     return "|".join((cik, form, str(accession)))
 
 
+def _discovery_limit(cfg, key, default):
+    value = cfg.get(key, default)
+    # null explicitly means all collected sources, not an arbitrary numeric cap.
+    return None if value is None else max(0, int(value))
+
+
+def _review_target_completion(sec, linked, cfg, existing=None):
+    """Target-side lifecycle review must precede any capitalization exclusion.
+
+    A third-party discovery row alone cannot establish closing. Require a
+    recent issuer merger filing and actual conversion of its common shares.
+    """
+    try:
+        filing = _watch_filing(sec, linked.cik, {"8-K", "8-K/A"})
+        if filing is None:
+            return False
+        selected, reviewed, warnings = review_material_events(sec, linked.cik, filing, cfg)
+        if not selected or selected["event_status"] not in {"COMPLETED", "TERMINAL"}:
+            return False
+        if selected["event_type"] not in MERGER_KINDS | {"TERMINAL_MERGER"}:
+            return False
+        latest = max(linked.latest_event_date or "", getattr(existing, "latest_event_date", "") or "")
+        if (selected.get("filed") or "") < latest:
+            return False
+        narrative = selected.get("narrative") or selected.get("text") or ""
+        if not completed_target_common_conversion(narrative):
+            return False
+        linked.event_terms.update(selected["terms"])
+        linked.event_terms.update(ma_role="TARGET", target_common_conversion_verified=True,
+                                 target_lifecycle_source_accession=selected.get("accession"))
+        linked.event_terms.pop("nonbinding_proposal_review_required", None)
+        linked.event_type = selected["event_type"]
+        linked.event_status = selected["event_status"]
+        linked.latest_event_date = selected.get("filed")
+        linked.latest_event_form = selected.get("form")
+        linked.latest_event_accession = selected.get("accession")
+        linked.event_sources = list(dict.fromkeys(linked.event_sources + selected.get("sources", [])
+                                                  + (existing.event_sources if existing else [])))
+        linked.event_review_complete = not warnings
+        linked.data_warnings.extend(warnings)
+        linked.price = linked.adv20_usd = None
+        linked.gate_status = linked.bucket = "EXCLUDED"
+        linked.data_warnings.append("Issuer merger completed and original common shares converted; no new target-equity entry.")
+        return True
+    except Exception as exc:
+        linked.data_warnings.append(f"Target completion review unavailable: {type(exc).__name__}")
+        return False
+
+
 def scan(days=7, config_path="config/default.json", watchlist_path="config/watchlist.csv",
          overrides_path="config/overrides.json", incremental_state_path=None):
     progress("scan.start", days=days, incremental=incremental_state_path is not None)
@@ -492,10 +541,11 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     ma_reads = 0
     ownership_reads = 0
     ownership_budget_exceeded = 0
-    ownership_read_limit = max(0, min(200, int(cfg.get("ma_discovery_max_ownership_reads", 100))))
+    ownership_read_limit = _discovery_limit(cfg, "ma_discovery_max_ownership_reads", 100)
     ma_unmatched = 0
+    ma_unresolved = []
     ma_budget_exceeded = 0
-    ma_read_limit = max(0, min(200, int(cfg.get("ma_discovery_max_acquirer_8k_reads", 80))))
+    ma_read_limit = _discovery_limit(cfg, "ma_discovery_max_acquirer_8k_reads", 80)
     # Rolling ledger means the same accession in SEC's overlapping Atom
     # pages is not treated as a newly discovered event on every run.
     from datetime import date, timedelta
@@ -529,7 +579,7 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         # Once third-party ownership review is exhausted, skip BEFORE the
         # reporter submissions lookup. Never certify an unread accession.
         if (not metas and raw.get("form") in OWNERSHIP_PROPOSAL_FORMS
-                and ownership_reads >= ownership_read_limit):
+                and ownership_read_limit is not None and ownership_reads >= ownership_read_limit):
             ownership_budget_exceeded += 1
             encountered.pop(key, None)
             continue
@@ -548,7 +598,7 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         is_buyer_8k = (form in {"8-K", "8-K/A"}
                        and bool(_items(filing) & {"1.01", "2.01"}))
         is_ownership = form in OWNERSHIP_PROPOSAL_FORMS
-        should_read = (is_ownership and ownership_reads < ownership_read_limit) or is_tender or (is_buyer_8k and ma_reads < ma_read_limit)
+        should_read = (is_ownership and (ownership_read_limit is None or ownership_reads < ownership_read_limit)) or is_tender or (is_buyer_8k and (ma_read_limit is None or ma_reads < ma_read_limit))
         if (is_buyer_8k or is_ownership) and not should_read:
             if is_ownership:
                 ownership_budget_exceeded += 1
@@ -579,10 +629,17 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
                             ma_linked[t] = linked
                 elif is_tender:
                     ma_unmatched += 1
-            except Exception:
+                    encountered.pop(key, None)
+                    ma_unresolved.append({"accession": filing.get("accession"), "form": form,
+                                          "cik": filing.get("cik"), "source": filing.get("filename"),
+                                          "reason": filing.get("_discovery_unresolved_reason", "subject_or_transaction_unresolved")})
+            except Exception as exc:
                 # SEC failures must not poison the incremental checkpoint.
                 encountered.pop(key, None)
                 ma_unmatched += 1
+                ma_unresolved.append({"accession": filing.get("accession"), "form": form,
+                                      "cik": filing.get("cik"), "source": filing.get("filename"),
+                                      "reason": type(exc).__name__})
         for meta in metas:
             if meta['exchange'] not in cfg['exchanges']:
                 continue
@@ -630,6 +687,11 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
     by_candidate = {c.ticker: c for c in out}
     for ticker, linked in ma_linked.items():
         existing = by_candidate.get(ticker)
+        if _review_target_completion(sec, linked, cfg, existing):
+            if existing is not None:
+                out.remove(existing)
+            out.append(linked)
+            continue
         if existing is not None:
             # A verified target-side merger can be retained, but a routine
             # filing, unrelated REJECT, or stale event must not mask discovery.
@@ -688,6 +750,7 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         else:
             represented.add(c.cik)
 
+    cfg["_ma_unresolved_filings"] = ma_unresolved
     cfg["_ma_discovery_count"] = len(ma_linked)
     cfg["_ma_discovery_form_unmatched_count"] = ma_unmatched
     cfg["_ma_acquirer_8k_reads"] = ma_reads

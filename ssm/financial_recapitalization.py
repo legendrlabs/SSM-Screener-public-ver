@@ -293,4 +293,41 @@ def financial_capital_contexts(text, financial_record, events=(), *, baseline=No
                         'form':financial_record['form'],'report_date':financial_record.get('report_date'),
                         'sources':list(dict.fromkeys(sources)),'duplicate_event_accessions':duplicate_accessions,
                         'context':context})
-    return records
+    return _deduplicate_capital_records(records)
+
+
+def _deduplicate_capital_records(records):
+    """One read-only event identity, retaining corroboration and any uncertainty."""
+    by_id = {}
+    for record in records:
+        key = record['capital_event_id']
+        prior = by_id.get(key)
+        if prior is None:
+            record['evidence_variants'] = [r['evidence'] for r in record['context']['retirements']]
+            by_id[key] = record
+            continue
+        prior['sources'] = list(dict.fromkeys(prior['sources'] + record['sources']))
+        prior['duplicate_event_accessions'] = list(dict.fromkeys(
+            prior['duplicate_event_accessions'] + record['duplicate_event_accessions']))
+        prior['evidence_variants'] = list(dict.fromkeys(prior['evidence_variants'] +
+            [r['evidence'] for r in record['context']['retirements']]))
+        a, b = prior['context'], record['context']
+        # None never cancels a known conflict. Uncertainty in either source
+        # remains unresolved; do not release FD holds by choosing a nicer row.
+        conflict = {r.get('whole_instrument') for r in a['retirements'] + b['retirements']
+                    if r.get('whole_instrument') is not None} == {True, False}
+        if b.get('reconciliation_required') or conflict:
+            a['reconciliation_required'] = True
+            a['classification'] = 'CURRENT_RECONCILIATION_REQUIRED'
+            a['current_fd_impact'] = 'UNRESOLVED'
+            a['reconciliation_reasons'] = list(dict.fromkeys(a.get('reconciliation_reasons', []) + b.get('reconciliation_reasons', []) + (['DUPLICATE_SOURCE_CONFLICT'] if conflict else [])))
+            if conflict:
+                a['source_conflict'] = True
+            a['current_fd_impact'] = 'UNRESOLVED'
+            a['reconciliation_reasons'] = list(dict.fromkeys(a.get('reconciliation_reasons', []) +
+                b.get('reconciliation_reasons', []) + (['CONFLICTING_RETIREMENT_EXTENT'] if conflict else [])))
+        for old, new in zip(a['retirements'], b['retirements']):
+            if (old.get('current_instrument_status') == new.get('current_instrument_status') == 'EXTINGUISHED_LATER'
+                    and old.get('status') == 'PLANNED' and new.get('status') == 'COMPLETED'):
+                old['status'] = 'COMPLETED'
+    return list(by_id.values())

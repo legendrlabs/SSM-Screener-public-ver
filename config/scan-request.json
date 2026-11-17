@@ -1,4 +1,4 @@
 {
-  "request_id": "2026-11-18-retry-after-runtime-diagnostics-fix",
-  "reason": "Retry full main scan after reducing duplicate 13D work and logging live progress; 120-minute job allowance"
+  "request_id": "2026-11-18-quality-coverage-lifecycle-capital",
+  "reason": "Full rescan after removing default M&A count caps, issuer-side completion reconciliation, capital-event deduplication and quality fail-closed checks"
 }
