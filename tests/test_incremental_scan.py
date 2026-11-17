@@ -250,3 +250,7 @@ def test_incremental_rejects_missing_or_unverified_full_anchor_before_sec_access
     monkeypatch.setattr(pipeline, "SecClient", lambda: pytest.fail("Must reject before SEC discovery"))
     with pytest.raises(ValueError, match="seven-day full baseline"):
         pipeline.scan(2, str(cfg), incremental_state_path=str(prior))
+
+
+def test_daily_morning_schedule_selects_full_without_checkpoint():
+    assert plan("auto", "37 22 * * *", repo=None, token=None)["mode"] == "full"
