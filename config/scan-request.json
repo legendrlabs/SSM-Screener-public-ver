@@ -1,4 +1,4 @@
 {
-  "request_id": "2026-11-18-enable-direct-main-scan",
-  "reason": "Run the main seven-day full scan after enabling daily scheduling and 13D discovery"
+  "request_id": "2026-11-18-retry-after-runtime-diagnostics-fix",
+  "reason": "Retry full main scan after reducing duplicate 13D work and logging live progress; 120-minute job allowance"
 }

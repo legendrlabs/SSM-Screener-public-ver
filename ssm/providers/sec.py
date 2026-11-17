@@ -3,6 +3,7 @@ import os, re, time, datetime as dt, html
 import urllib.parse
 import xml.etree.ElementTree as ET
 import requests
+from ..progress import progress
 
 SEC_BASE = "https://www.sec.gov"
 SEC_DATA_BASE = "https://data.sec.gov"
@@ -23,6 +24,7 @@ class SecClient:
         self._facts_cache = {}
         self._ticker_cache = None
         self._texts_cache = {}
+        self._request_count = 0
         self.s = requests.Session()
         self.s.headers.update({
             "User-Agent": self.user_agent,
@@ -33,6 +35,9 @@ class SecClient:
         })
 
     def _get(self, url):
+        self._request_count += 1
+        started = time.monotonic()
+        progress("sec.request", request=self._request_count, url=url)
         last = None
         for attempt in range(self.max_retries):
             time.sleep(self.pause * (attempt + 1))
@@ -40,13 +45,24 @@ class SecClient:
                 r = self.s.get(url, timeout=30)
                 if r.status_code in (403, 429, 500, 502, 503, 504):
                     last = requests.HTTPError(f"{r.status_code} for {url}", response=r)
+                    progress("sec.http_retry", attempt=attempt + 1, status=r.status_code, url=url)
                     if attempt < self.max_retries - 1:
                         time.sleep(2 ** attempt)
                         continue
                 r.raise_for_status()
+                elapsed = time.monotonic() - started
+                if elapsed >= 5:
+                    progress("sec.slow", seconds=round(elapsed, 2), url=url)
                 return r
             except requests.RequestException as e:
                 last = e
+                status = e.response.status_code if e.response is not None else None
+                progress("sec.retry_or_error", attempt=attempt + 1, status=status,
+                         error=type(e).__name__, url=url)
+                # Retrying a permanent missing/invalid public resource cannot
+                # fix it; retain retries for throttling, access and server errors.
+                if status is not None and 400 <= status < 500 and status not in {403, 429}:
+                    raise
                 if attempt < self.max_retries - 1:
                     time.sleep(2 ** attempt)
                     continue
@@ -128,6 +144,7 @@ class SecClient:
         from ..ma_discovery import TENDER_FORMS
         tender_limit = max(1, min(5, int(os.getenv("SSM_MA_TENDER_FORM_PAGES", "2"))))
         for form in forms:
+            progress("sec.atom.form", form=form)
             limit = min(max_pages_per_form, tender_limit) if form in TENDER_FORMS else max_pages_per_form
             for page in range(limit):
                 params = {

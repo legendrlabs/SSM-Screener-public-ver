@@ -1,6 +1,8 @@
 """Run the bundled SSM CLI from an installed skill or any task directory."""
 from pathlib import Path
 import sys
+import os
+import faulthandler
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,10 +19,16 @@ def main(argv=None):
     sys.path.insert(0, str(ROOT))
     from ssm.cli import main as cli_main
     original = sys.argv
+    diagnostics = bool(args and args[0] in {"scan", "check"} and os.getenv("SSM_PROGRESS") == "1")
+    if diagnostics:
+        # Capture the live Python stack if progress stops in network or parsing.
+        faulthandler.dump_traceback_later(300, repeat=True)
     try:
         sys.argv = [str(Path(__file__)), *args]
         return cli_main()
     finally:
+        if diagnostics:
+            faulthandler.cancel_dump_traceback_later()
         sys.argv = original
 
 

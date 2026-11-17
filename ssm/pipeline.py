@@ -2,6 +2,7 @@ from __future__ import annotations
 import csv, json, os, re
 from pathlib import Path
 from .models import Candidate, Dilution
+from .progress import progress
 from .event_rules import classify_event
 from .dilution import heuristic_extract_dilution, apply_override
 from .gates import evaluate_gates
@@ -448,6 +449,8 @@ def _filing_key(raw):
     """Stable SEC identity; never deduplicate using the ticker or filing date."""
     cik = str(int(raw["cik"]))
     form = str(raw.get("form") or "")
+    if form in OWNERSHIP_PROPOSAL_FORMS:
+        form = form.replace("SCHEDULE ", "SC ")
     accession = raw.get("accession") or raw.get("filename") or raw.get("index_url")
     if not accession:
         raise ValueError("SEC discovery filing has no stable accession or URL")
@@ -456,6 +459,7 @@ def _filing_key(raw):
 
 def scan(days=7, config_path="config/default.json", watchlist_path="config/watchlist.csv",
          overrides_path="config/overrides.json", incremental_state_path=None):
+    progress("scan.start", days=days, incremental=incremental_state_path is not None)
     cfg = load_json(config_path)
     previous_entries = {}
     previous_run_id = None
@@ -478,7 +482,9 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
             raise ValueError("Incremental checkpoint missing a seven-day full baseline")
     overrides = load_json(overrides_path) if Path(overrides_path).exists() else {}
     sec = SecClient()
+    progress("tickers.start")
     by_cik, by_ticker = _ticker_map(sec)
+    progress("tickers.done", tickers=len(by_ticker))
     latest = {}
     # Acquisition discovery is independent of the acquirer's microcap gate.
     ma_index = name_index(by_ticker)
@@ -498,9 +504,19 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
                    if isinstance(v, str) and v >= ledger_cutoff}
     discovery_count = 0
     new_discovery_count = 0
-    for raw in sec.recent_filings(days, cfg["event_forms"]):
+    progress("discovery.start")
+    raw_filings = sec.recent_filings(days, cfg["event_forms"])
+    progress("discovery.fetched", count=len(raw_filings) if hasattr(raw_filings, "__len__") else None)
+    processed_in_run = set()
+    for raw in raw_filings:
         discovery_count += 1
+        if discovery_count == 1 or discovery_count % 25 == 0:
+            progress("discovery.process", count=discovery_count, form=raw.get("form"),
+                     accession=raw.get("accession"), ownership_reads=ownership_reads)
         key = _filing_key(raw)
+        if key in processed_in_run:
+            continue
+        processed_in_run.add(key)
         if (key in encountered and incremental_state_path is not None
                 and not (raw.get("form") in OWNERSHIP_PROPOSAL_FORMS
                          and ownership_discovery_version < 1)):
@@ -509,6 +525,13 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         encountered[key] = raw.get("filed") or date.today().isoformat()
         metas = by_cik.get(str(int(raw["cik"])), [])
         if not metas and raw.get("form") not in TENDER_FORMS | OWNERSHIP_PROPOSAL_FORMS:
+            continue
+        # Once third-party ownership review is exhausted, skip BEFORE the
+        # reporter submissions lookup. Never certify an unread accession.
+        if (not metas and raw.get("form") in OWNERSHIP_PROPOSAL_FORMS
+                and ownership_reads >= ownership_read_limit):
+            ownership_budget_exceeded += 1
+            encountered.pop(key, None)
             continue
         try:
             filing = sec.enrich_filing(str(int(raw["cik"])), raw)
@@ -567,6 +590,8 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
             if t not in latest or (filing.get('filed') or '') > (latest[t].get('filed') or ''):
                 latest[t] = filing
 
+    progress("discovery.done", filings=discovery_count, unique=len(processed_in_run),
+             issuers=len(latest), ma_targets=len(ma_linked), ownership_reads=ownership_reads)
     event_forms = set(cfg["event_forms"])
     for t in load_watchlist(watchlist_path):
         if t in latest or t not in by_ticker:
@@ -578,15 +603,20 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         except Exception:
             pass
 
+    progress("security_review.start", issuers=len(latest))
     for ticker, filing in latest.items():
+        progress("security_review.issuer", ticker=ticker)
         try:
             by_ticker[ticker] = resolve_security(sec, by_ticker[ticker], filing)
         except Exception:
             by_ticker[ticker] = {**by_ticker[ticker], 'security_type': 'UNKNOWN'}
     eligible = [t for t in latest if by_ticker[t].get('security_type') == 'COMMON_EQUITY']
+    progress("market.start", tickers=len(eligible))
     snapshots = market_snapshots(eligible) if eligible else {}
+    progress("market.done", quotes=len(snapshots))
     out = []
     for t, filing in latest.items():
+        progress("candidate.start", ticker=t, done=len(out), total=len(latest))
         try:
             out.append(build_candidate(sec, by_ticker[t], filing, overrides, cfg, snapshots.get(t)))
         except Exception as e:
@@ -684,4 +714,6 @@ def scan(days=7, config_path="config/default.json", watchlist_path="config/watch
         cfg["_seen_filings"]["last_full_completed_at_utc"] = prior_full_at
         cfg["_seen_filings"]["last_full_lookback_days"] = prior_full_days
     out.sort(key=lambda c: (c.bucket == "A_RESEARCH_NOW", c.priority_score or -1), reverse=True)
+    progress("scan.done", candidates=len(out), ownership_reads=ownership_reads,
+             ma_discovery_partial=cfg["_ma_discovery_partial"])
     return out, cfg
