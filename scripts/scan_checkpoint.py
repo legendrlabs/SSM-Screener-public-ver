@@ -24,7 +24,7 @@ def utc(value):
 
 
 def choose_mode(requested, schedule):
-    if requested == "full" or schedule == "30 11 * * 1":
+    if requested == "full" or schedule in {"30 11 * * 1", "37 22 * * *"}:
         return "full"
     return "auto"
 

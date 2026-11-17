@@ -1,8 +1,12 @@
 # Separate operator runtime from the packaged ChatGPT skill.
-# One weekly full scan anchors bounded twice-daily, filing-delta scans.
+# Daily full baseline plus a daily filing-delta scan; main-only request-file trigger.
 name: SSM SEC Scan (Manual + Scheduled)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'config/scan-request.json'
   workflow_dispatch:
     inputs:
       mode:
@@ -25,9 +29,8 @@ on:
           - '14'
           - '30'
   schedule:
-    - cron: '30 11 * * 1'    # Monday 20:30 KST: weekly full
-    - cron: '30 11 * * 2-5'  # Tuesday-Friday 20:30 KST: incremental
-    - cron: '30 22 * * 1-5'  # Tuesday-Saturday 07:30 KST: incremental
+    - cron: '37 22 * * *'  # Every day 07:37 KST: full (previous UTC date)
+    - cron: '37 11 * * *'  # Every day 20:37 KST: incremental
 
 permissions:
   contents: read
@@ -85,7 +88,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED_MODE: ${{ inputs.mode || 'auto' }}
+          REQUESTED_MODE: ${{ github.event_name == 'push' && 'full' || inputs.mode || 'auto' }}
           CRON_SCHEDULE: ${{ github.event.schedule }}
         run: |
           mkdir -p "$SSM_OUT" /tmp/ssm-prior

@@ -1,0 +1,4 @@
+{
+  "request_id": "2026-11-18-enable-direct-main-scan",
+  "reason": "Run the main seven-day full scan after enabling daily scheduling and 13D discovery"
+}
